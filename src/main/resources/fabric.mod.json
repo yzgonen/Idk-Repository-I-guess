@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "vanguard_lipsync",
   "version": "${version}",
-  "name": "Vanguard LipSync",
-  "description": "Real-time speech-shaped mouth animation for Simple Voice Chat on Minecraft 1.21.11.",
+  "name": "Vanguard Animation",
+  "description": "Minecraft 1.21.11 client animation addon: Simple Voice Chat driven skin-face deformation plus enhanced sprint, crouch, crawl and sit poses.",
   "authors": ["Vanguard"],
   "environment": "client",
   "entrypoints": {
