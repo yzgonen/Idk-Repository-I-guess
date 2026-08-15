@@ -1,0 +1,6 @@
+{
+  "required": true,
+  "package": "com.vanguard.lipsync.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["PlayerEntityRendererMixin"]
+}
