@@ -3,16 +3,18 @@
   "id": "vanguard_lipsync",
   "version": "${version}",
   "name": "Vanguard LipSync",
-  "description": "Simple Voice Chat lip sync addon for Minecraft 1.21.11.",
+  "description": "Real-time speech-shaped mouth animation for Simple Voice Chat on Minecraft 1.21.11.",
   "authors": ["Vanguard"],
   "environment": "client",
   "entrypoints": {
     "client": ["com.vanguard.lipsync.client.VanguardLipSyncClient"],
     "voicechat": ["com.vanguard.lipsync.voice.VanguardVoicechatPlugin"]
   },
+  "mixins": ["vanguard_lipsync.mixins.json"],
   "depends": {
-    "fabricloader": ">=0.18.1",
+    "fabricloader": ">=0.19.3",
     "minecraft": "1.21.11",
+    "java": ">=21",
     "fabric-api": "*",
     "voicechat": "*"
   }
