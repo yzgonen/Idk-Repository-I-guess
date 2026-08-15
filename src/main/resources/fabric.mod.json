@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "vanguard_lipsync",
+  "version": "${version}",
+  "name": "Vanguard LipSync",
+  "description": "Simple Voice Chat lip sync addon for Minecraft 1.21.11.",
+  "authors": ["Vanguard"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.vanguard.lipsync.client.VanguardLipSyncClient"],
+    "voicechat": ["com.vanguard.lipsync.voice.VanguardVoicechatPlugin"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "1.21.11",
+    "fabric-api": "*",
+    "voicechat": "*"
+  }
+}
