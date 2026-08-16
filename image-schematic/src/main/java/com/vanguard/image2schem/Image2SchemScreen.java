@@ -26,6 +26,7 @@ public final class Image2SchemScreen extends Screen {
     private Image2SchemClient.GenerationResult generated;
     private volatile int progress;
     private volatile boolean generating;
+    private volatile long generationStartedAt;
     private String status = "Choose or drop a PNG/JPG to begin.";
     private ButtonWidget generateButton;
     private ButtonWidget downloadButton;
@@ -37,24 +38,33 @@ public final class Image2SchemScreen extends Screen {
 
     @Override protected void init() {
         int center = width / 2;
-        int panelWidth = Math.min(760, width - 32);
+        int panelWidth = Math.min(900, width - 48);
         int left = center - panelWidth / 2;
-        int buttonGap = 8;
-        int buttonW = (panelWidth - buttonGap * 2) / 3;
-        addDrawableChild(ButtonWidget.builder(Text.literal("Choose PNG / JPG"), b -> chooseImage()).dimensions(left, 42, buttonW, 20).build());
-        generateButton = addDrawableChild(ButtonWidget.builder(Text.literal("Generate 3D Build"), b -> startGenerate()).dimensions(left + buttonW + buttonGap, 42, buttonW, 20).build());
-        downloadButton = addDrawableChild(ButtonWidget.builder(Text.literal("Download Schematic"), b -> downloadSchematic()).dimensions(left + (buttonW + buttonGap) * 2, 42, buttonW, 20).build());
+        int gap = 8;
+        int buttonW = (panelWidth - gap * 2) / 3;
 
-        int keyButtonW = 92;
-        groqKeyField = addDrawableChild(new TextFieldWidget(textRenderer, left, 72, panelWidth - keyButtonW - 8, 20, Text.literal("Groq API Key")));
+        addDrawableChild(ButtonWidget.builder(Text.literal("Choose PNG / JPG"), b -> chooseImage())
+                .dimensions(left, 42, buttonW, 20).build());
+        generateButton = addDrawableChild(ButtonWidget.builder(Text.literal("Generate 3D Build"), b -> startGenerate())
+                .dimensions(left + buttonW + gap, 42, buttonW, 20).build());
+        downloadButton = addDrawableChild(ButtonWidget.builder(Text.literal("Download Schematic"), b -> downloadSchematic())
+                .dimensions(left + (buttonW + gap) * 2, 42, buttonW, 20).build());
+
+        int keyButtonW = 100;
+        groqKeyField = addDrawableChild(new TextFieldWidget(textRenderer, left, 72,
+                panelWidth - keyButtonW - 8, 20, Text.literal("Groq API Key")));
         groqKeyField.setMaxLength(256);
-        groqKeyField.setText(GroqKeyStore.load());
-        groqKeyField.setPlaceholder(Text.literal("Paste Groq API key here (gsk_...)"));
-        addDrawableChild(ButtonWidget.builder(Text.literal("Save Key"), b -> saveGroqKey()).dimensions(left + panelWidth - keyButtonW, 72, keyButtonW, 20).build());
+        groqKeyField.setText(""); // Never display a saved secret back on screen.
+        groqKeyField.setPlaceholder(Text.literal(GroqKeyStore.hasKey()
+                ? "Groq key saved - paste a new key only if you want to replace it"
+                : "Paste Groq API key here (gsk_...)"));
+        addDrawableChild(ButtonWidget.builder(Text.literal("Save Key"), b -> saveGroqKey())
+                .dimensions(left + panelWidth - keyButtonW, 72, keyButtonW, 20).build());
 
         generateButton.active = selectedImage != null && !generating;
         downloadButton.active = generated != null && !generating;
-        addDrawableChild(ButtonWidget.builder(Text.literal("Close"), b -> close()).dimensions(center - 100, height - 30, 200, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("Close"), b -> close())
+                .dimensions(center - 100, height - 30, 200, 20).build());
         installDropCallback();
     }
 
@@ -62,18 +72,42 @@ public final class Image2SchemScreen extends Screen {
         try {
             String key = groqKeyField == null ? "" : groqKeyField.getText().trim();
             if (key.isEmpty()) {
-                GroqKeyStore.save("");
-                status = "Groq API key cleared.";
+                status = GroqKeyStore.hasKey() ? "Groq key is already saved locally." : "Paste a Groq key first.";
                 return;
             }
             if (!key.startsWith("gsk_")) {
-                status = "Groq key looks unusual. Expected it to begin with gsk_.";
+                status = "That does not look like a Groq key. It should start with gsk_.";
                 return;
             }
             GroqKeyStore.save(key);
-            status = "Groq API key saved locally. It is not uploaded to GitHub.";
+            groqKeyField.setText("");
+            groqKeyField.setPlaceholder(Text.literal("Groq key saved - hidden for safety"));
+            status = "Groq key saved locally and hidden.";
         } catch (Exception e) {
             status = "Could not save Groq key: " + safeMessage(e);
+        }
+    }
+
+    private boolean ensureGroqKeySaved() {
+        try {
+            String typed = groqKeyField == null ? "" : groqKeyField.getText().trim();
+            if (!typed.isEmpty()) {
+                if (!typed.startsWith("gsk_")) {
+                    status = "Invalid Groq key. It should start with gsk_.";
+                    return false;
+                }
+                GroqKeyStore.save(typed);
+                groqKeyField.setText("");
+                groqKeyField.setPlaceholder(Text.literal("Groq key saved - hidden for safety"));
+            }
+            if (!GroqKeyStore.hasKey()) {
+                status = "Paste your Groq API key first.";
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            status = "Could not save Groq key: " + safeMessage(e);
+            return false;
         }
     }
 
@@ -90,7 +124,7 @@ public final class Image2SchemScreen extends Screen {
     }
 
     private void chooseImage() {
-        status = "Opening Windows file picker...";
+        status = "Opening file picker...";
         Thread t = new Thread(() -> {
             Frame owner = null;
             try {
@@ -111,7 +145,9 @@ public final class Image2SchemScreen extends Screen {
                 dialog.dispose();
             } catch (Throwable e) {
                 MinecraftClient.getInstance().execute(() -> status = "Picker failed - drag/drop still works: " + safeMessage(e));
-            } finally { if (owner != null) owner.dispose(); }
+            } finally {
+                if (owner != null) owner.dispose();
+            }
         }, "Image2Schem-NativePicker");
         t.setDaemon(true);
         t.start();
@@ -120,7 +156,8 @@ public final class Image2SchemScreen extends Screen {
     private void selectImage(Path path) {
         try {
             String lower = path.getFileName().toString().toLowerCase();
-            if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg"))) throw new IllegalArgumentException("Choose a PNG, JPG or JPEG file.");
+            if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")))
+                throw new IllegalArgumentException("Choose a PNG, JPG or JPEG file.");
             if (!Files.isRegularFile(path)) throw new IllegalArgumentException("That file cannot be read.");
             BufferedImage image = ImageIO.read(path.toFile());
             if (image == null) throw new IllegalArgumentException("Unsupported image file.");
@@ -132,23 +169,29 @@ public final class Image2SchemScreen extends Screen {
             status = "Ready - calculated build: " + suggestion.width() + " x " + suggestion.height() + " x " + suggestion.depth() + " blocks";
             generateButton.active = true;
             downloadButton.active = false;
-        } catch (Exception e) { status = "Image error: " + safeMessage(e); }
+        } catch (Exception e) {
+            status = "Image error: " + safeMessage(e);
+        }
     }
 
     private void startGenerate() {
         if (selectedImage == null || suggestion == null || generating) return;
+        if (!ensureGroqKeySaved()) return;
+
         generating = true;
         generated = null;
-        progress = 0;
-        status = "Analyzing image";
+        progress = 1;
+        generationStartedAt = System.currentTimeMillis();
+        status = "Starting Groq + local Depth AI...";
         generateButton.active = false;
         downloadButton.active = false;
+
         Path image = selectedImage;
         ImageConverter.Suggestion size = suggestion;
         Thread worker = new Thread(() -> {
             try {
                 Image2SchemClient.GenerationResult result = Image2SchemClient.generatePath(image, size.width(), size.depth(), p -> {
-                    int next = Math.max(0, Math.min(100, p));
+                    int next = Math.max(progress, Math.max(0, Math.min(100, p)));
                     progress = next;
                     status = stageFor(next);
                 });
@@ -156,16 +199,16 @@ public final class Image2SchemScreen extends Screen {
                     generated = result;
                     generating = false;
                     progress = 100;
-                    status = "FINISHED - refined and validated. Click Download Schematic.";
+                    status = "FINISHED - schematic ready.";
                     generateButton.active = true;
                     downloadButton.active = true;
                 });
             } catch (Exception e) {
                 MinecraftClient.getInstance().execute(() -> {
                     generating = false;
-                    progress = 0;
-                    status = "Generation failed: " + safeMessage(e);
+                    status = "FAILED: " + safeMessage(e);
                     generateButton.active = true;
+                    downloadButton.active = false;
                 });
             }
         }, "Image2Schem-Generator");
@@ -174,18 +217,14 @@ public final class Image2SchemScreen extends Screen {
     }
 
     private static String stageFor(int p) {
-        if (p < 8) return "Loading and scaling reference";
-        if (p < 20) return "Analyzing edges and background";
-        if (p < 31) return "Cleaning structure and detecting entrance";
-        if (p < 46) return "Reconstructing facade";
-        if (p < 64) return "Building interior shell and depth";
-        if (p < 73) return "Creating corridor and structural columns";
-        if (p < 80) return "Checking rear structure";
-        if (p < 86) return "Refinement pass 1 - removing noise";
-        if (p < 91) return "Refinement pass 2 - reinforcing architecture";
-        if (p < 96) return "Refinement pass 3 - carving walkable spaces";
-        if (p < 99) return "Refinement pass 4 - removing spikes";
-        if (p < 100) return "Final structural validation";
+        if (p < 5) return "Preparing image...";
+        if (p < 46) return "Groq is reading the architecture while Depth AI runs locally...";
+        if (p < 51) return "Combining Groq plan + neural depth...";
+        if (p < 70) return "Building clean walls, entrance and structural primitives...";
+        if (p < 83) return "Building ramp, floor and major structures...";
+        if (p < 91) return "Reconstructing interior depth...";
+        if (p < 96) return "Applying Minecraft materials and details...";
+        if (p < 100) return "Final structural cleanup...";
         return "FINISHED";
     }
 
@@ -197,9 +236,11 @@ public final class Image2SchemScreen extends Screen {
             Path source = generated.output();
             Path target = uniquePath(downloads, source.getFileName().toString());
             Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-            status = "Downloaded: " + target.getFileName() + " -> Downloads folder";
+            status = "Downloaded: " + target.getFileName() + " -> Downloads";
             net.minecraft.util.Util.getOperatingSystem().open(downloads);
-        } catch (Exception e) { status = "Download failed: " + safeMessage(e); }
+        } catch (Exception e) {
+            status = "Download failed: " + safeMessage(e);
+        }
     }
 
     private static Path uniquePath(Path folder, String filename) {
@@ -217,62 +258,119 @@ public final class Image2SchemScreen extends Screen {
     @Override public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
         context.fill(0, 0, width, height, 0xCC101010);
         super.render(context, mouseX, mouseY, deltaTicks);
+
         int center = width / 2;
-        int panelWidth = Math.min(760, width - 32);
+        int panelWidth = Math.min(900, width - 48);
         int left = center - panelWidth / 2;
         context.drawCenteredTextWithShadow(textRenderer, title, center, 14, 0xFFFFFF);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal("Choose an image or drag it onto Minecraft"), center, 27, 0xB0B0B0);
-        context.drawTextWithShadow(textRenderer, Text.literal("Groq API Key (saved only on this PC)"), left, 63, 0xB0B0B0);
-        int previewTop = 106;
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal("Choose an image, then Generate. Groq plans it; your PC builds it."), center, 27, 0xB0B0B0);
+
+        String keyState = GroqKeyStore.hasKey() ? "Groq key: SAVED (hidden)" : "Groq key: NOT SAVED";
+        context.drawTextWithShadow(textRenderer, Text.literal(keyState), left, 96, GroqKeyStore.hasKey() ? 0x55FF55 : 0xFF7777);
+
+        String liveStatus;
+        if (generating) {
+            long elapsed = Math.max(0, (System.currentTimeMillis() - generationStartedAt) / 1000L);
+            liveStatus = progress + "%  |  " + status + "  |  " + elapsed + "s";
+        } else {
+            liveStatus = progress == 100 ? "100%  |  FINISHED" : status;
+        }
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal(liveStatus), center, 108,
+                progress == 100 ? 0x55FF55 : 0xFFFFFF);
+
+        int previewTop = 126;
         int previewHeight = Math.max(100, height - 220);
         int gap = 12;
         int boxWidth = (panelWidth - gap) / 2;
         int rightBox = left + boxWidth + gap;
         drawPanel(context, left, previewTop, boxWidth, previewHeight, "SOURCE IMAGE");
         drawPanel(context, rightBox, previewTop, boxWidth, previewHeight, "3D BLOCK PREVIEW");
+
         if (selectedPreview != null) {
             drawFlatPreview(context, selectedPreview, left + 8, previewTop + 24, boxWidth - 16, previewHeight - 50);
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal(selectedImage.getFileName() + " | " + selectedPreview.getWidth() + "x" + selectedPreview.getHeight() + " px"), left + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
-        } else context.drawCenteredTextWithShadow(textRenderer, Text.literal("No image selected"), left + boxWidth / 2, previewTop + previewHeight / 2, 0x909090);
-        if (generated != null) {
-            draw3dPreview(context, generated.model(), rightBox + 8, previewTop + 24, boxWidth - 16, previewHeight - 50);
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal(generated.width() + " x " + generated.height() + " x " + generated.depth() + " blocks"), rightBox + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
-        } else if (suggestion != null) {
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal("Calculated: " + suggestion.width() + " x " + suggestion.height() + " x " + suggestion.depth()), rightBox + boxWidth / 2, previewTop + previewHeight / 2 - 6, 0xD0D0D0);
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal("Press Generate 3D Build"), rightBox + boxWidth / 2, previewTop + previewHeight / 2 + 10, 0x909090);
+            context.drawCenteredTextWithShadow(textRenderer,
+                    Text.literal(selectedImage.getFileName() + " | " + selectedPreview.getWidth() + "x" + selectedPreview.getHeight() + " px"),
+                    left + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
+        } else {
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal("No image selected"), left + boxWidth / 2, previewTop + previewHeight / 2, 0x909090);
         }
 
-        int lineY = height - 79;
-        String percentLine = generating ? String.format("%3d%%  -  %s", progress, status) : (progress == 100 ? "100%  -  FINISHED" : String.format("%3d%%  -  %s", progress, status));
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(percentLine), center, lineY, progress == 100 ? 0x55FF55 : 0xFFFFFF);
-        context.fill(left, lineY + 15, left + panelWidth, lineY + 16, 0xFF606060);
-        if (!generating && progress == 100) {
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal("Refinement complete - schematic is ready to download"), center, lineY + 21, 0xB0B0B0);
+        if (generated != null) {
+            draw3dPreview(context, generated.model(), rightBox + 8, previewTop + 24, boxWidth - 16, previewHeight - 50);
+            context.drawCenteredTextWithShadow(textRenderer,
+                    Text.literal(generated.width() + " x " + generated.height() + " x " + generated.depth() + " blocks"),
+                    rightBox + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
+        } else if (suggestion != null) {
+            context.drawCenteredTextWithShadow(textRenderer,
+                    Text.literal("Calculated: " + suggestion.width() + " x " + suggestion.height() + " x " + suggestion.depth()),
+                    rightBox + boxWidth / 2, previewTop + previewHeight / 2 - 6, 0xD0D0D0);
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal(generating ? "AI is working..." : "Press Generate 3D Build"),
+                    rightBox + boxWidth / 2, previewTop + previewHeight / 2 + 10, generating ? 0xFFFF55 : 0x909090);
+        }
+
+        int lineY = height - 52;
+        context.fill(left, lineY, left + panelWidth, lineY + 2, 0xFF505050);
+        if (generating) {
+            int fill = Math.round(panelWidth * (progress / 100f));
+            context.fill(left, lineY, left + fill, lineY + 2, 0xFFFFFFFF);
         }
     }
 
     private void drawPanel(DrawContext c, int x, int y, int w, int h, String label) {
-        c.fill(x, y, x + w, y + h, 0xFF1B1B1B); c.fill(x, y, x + w, y + 1, 0xFF8A8A8A); c.fill(x, y + h - 1, x + w, y + h, 0xFF404040); c.fill(x, y, x + 1, y + h, 0xFF8A8A8A); c.fill(x + w - 1, y, x + w, y + h, 0xFF404040); c.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + w / 2, y + 7, 0xFFFFFF);
+        c.fill(x, y, x + w, y + h, 0xFF1B1B1B);
+        c.fill(x, y, x + w, y + 1, 0xFF8A8A8A);
+        c.fill(x, y + h - 1, x + w, y + h, 0xFF404040);
+        c.fill(x, y, x + 1, y + h, 0xFF8A8A8A);
+        c.fill(x + w - 1, y, x + w, y + h, 0xFF404040);
+        c.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + w / 2, y + 7, 0xFFFFFF);
     }
 
     private void drawFlatPreview(DrawContext c, BufferedImage image, int x, int y, int w, int h) {
         int sw = Math.min(80, image.getWidth()), sh = Math.min(80, image.getHeight());
-        float scale = Math.min(w / (float)sw, h / (float)sh); int cell = Math.max(1, (int)scale); int dw = sw * cell, dh = sh * cell, ox = x + (w-dw)/2, oy = y + (h-dh)/2;
-        for (int sy=0; sy<sh; sy++) for (int sx=0; sx<sw; sx++) { int rgb=image.getRGB(sx*image.getWidth()/sw, sy*image.getHeight()/sh)&0xFFFFFF; c.fill(ox+sx*cell,oy+sy*cell,ox+(sx+1)*cell,oy+(sy+1)*cell,0xFF000000|rgb); }
+        float scale = Math.min(w / (float)sw, h / (float)sh);
+        int cell = Math.max(1, (int)scale);
+        int dw = sw * cell, dh = sh * cell, ox = x + (w-dw)/2, oy = y + (h-dh)/2;
+        for (int sy=0; sy<sh; sy++) for (int sx=0; sx<sw; sx++) {
+            int rgb=image.getRGB(sx*image.getWidth()/sw, sy*image.getHeight()/sh)&0xFFFFFF;
+            c.fill(ox+sx*cell,oy+sy*cell,ox+(sx+1)*cell,oy+(sy+1)*cell,0xFF000000|rgb);
+        }
     }
 
     private void draw3dPreview(DrawContext c, ImageConverter.Result m, int x, int y, int w, int h) {
-        Map<Integer,String> inverse=new HashMap<>(); m.palette().forEach((n,id)->inverse.put(id,n)); int sxStep=Math.max(1,m.width()/60), syStep=Math.max(1,m.height()/45); int cols=(m.width()+sxStep-1)/sxStep, rows=(m.height()+syStep-1)/syStep; int cell=Math.max(1,Math.min(w/Math.max(1,cols+m.length()),h/Math.max(1,rows+m.length()))); int ox=x+(w-(cols+m.length())*cell)/2+m.length()*cell/2, oy=y+(h-(rows+m.length())*cell)/2;
-        for(int py=rows-1;py>=0;py--){int srcY=Math.min(m.height()-1,py*syStep);for(int px=0;px<cols;px++){int srcX=Math.min(m.width()-1,px*sxStep),id=0,d=0;for(int z=0;z<m.length();z++){int idx=srcX+z*m.width()+srcY*m.width()*m.length();if(m.paletteIds()[idx]!=0){d=z+1;id=m.paletteIds()[idx];}}if(id==0)continue;int color=BlockPalette.colorFor(inverse.getOrDefault(id,""));int bx=ox+px*cell+d*cell/2,by=oy+(rows-1-py)*cell+(m.length()-d)*cell/2;c.fill(bx,by,bx+cell,by+cell,color);}}
+        Map<Integer,String> inverse=new HashMap<>();
+        m.palette().forEach((n,id)->inverse.put(id,n));
+        int sxStep=Math.max(1,m.width()/60), syStep=Math.max(1,m.height()/45);
+        int cols=(m.width()+sxStep-1)/sxStep, rows=(m.height()+syStep-1)/syStep;
+        int cell=Math.max(1,Math.min(w/Math.max(1,cols+m.length()),h/Math.max(1,rows+m.length())));
+        int ox=x+(w-(cols+m.length())*cell)/2+m.length()*cell/2;
+        int oy=y+(h-(rows+m.length())*cell)/2;
+        for(int py=rows-1;py>=0;py--){
+            int srcY=Math.min(m.height()-1,py*syStep);
+            for(int px=0;px<cols;px++){
+                int srcX=Math.min(m.width()-1,px*sxStep),id=0,d=0;
+                for(int z=0;z<m.length();z++){
+                    int idx=srcX+z*m.width()+srcY*m.width()*m.length();
+                    if(m.paletteIds()[idx]!=0){d=z+1;id=m.paletteIds()[idx];}
+                }
+                if(id==0)continue;
+                int color=BlockPalette.colorFor(inverse.getOrDefault(id,""));
+                int bx=ox+px*cell+d*cell/2,by=oy+(rows-1-py)*cell+(m.length()-d)*cell/2;
+                c.fill(bx,by,bx+cell,by+cell,color);
+            }
+        }
     }
 
-    private static String safeMessage(Throwable e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
+    private static String safeMessage(Throwable e) {
+        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    }
 
     @Override public void removed() {
         if (client != null && dropCallback != null) {
             long window = client.getWindow().getHandle();
             GLFW.glfwSetDropCallback(window, previousDrop);
-            dropCallback.free(); dropCallback = null; previousDrop = null;
+            dropCallback.free();
+            dropCallback = null;
+            previousDrop = null;
         }
         super.removed();
     }
