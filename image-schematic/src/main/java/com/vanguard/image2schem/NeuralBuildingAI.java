@@ -16,14 +16,13 @@ public final class NeuralBuildingAI {
             BufferedImage src = ImageIO.read(imagePath.toFile());
             if (src == null) throw new IOException("Unsupported or unreadable image");
 
-            // Real neural inference. On the first run the model is downloaded and cached locally.
+            // Real local neural inference. The model is cached after the first download.
             float[][] depth = NeuralDepthAI.estimate(src, p -> progress.accept(Math.max(1, Math.min(49, p))));
             progress.accept(50);
 
-            // IMPORTANT: no LocalBuildingAI fallback here. That old code invented a giant rectangular shell.
-            // The new builder uses the neural depth map itself as the geometry source and only places
-            // blocks where image/depth evidence supports actual visible architecture.
-            ImageConverter.Result result = DepthGeometryBuilder.build(src, depth, targetWidth, requestedDepth,
+            // v1 pipeline: neural depth -> plane fitting -> architecture solver -> material engine.
+            // No old rectangular shell generator and no raw pixel extrusion fallback.
+            ImageConverter.Result result = ArchitectureV1Builder.build(src, depth, targetWidth, requestedDepth,
                     p -> progress.accept(Math.max(51, Math.min(99, p))));
             progress.accept(99);
             return result;
