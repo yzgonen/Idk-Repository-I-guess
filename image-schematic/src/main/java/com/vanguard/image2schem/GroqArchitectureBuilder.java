@@ -1,316 +1,151 @@
 package com.vanguard.image2schem;
 
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.util.Arrays;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
+import java.util.List;
 import java.util.function.IntConsumer;
 
-/**
- * Clean primitive-based builder driven by Groq's scene graph.
- * The important rule is that image rows are NOT directly turned into floor height.
- * Floors/ramps are built in the XZ plane, while facade objects are explicit cuboids/planes.
- */
+/** Generic scene-to-Minecraft primitive engine. No scene-specific geometry is invented. */
 public final class GroqArchitectureBuilder {
-    private GroqArchitectureBuilder() {}
+    private GroqArchitectureBuilder(){}
 
-    public static ImageConverter.Result build(BufferedImage source, float[][] sourceDepth,
-                                               GroqArchitectAI.Plan plan,
-                                               int requestedWidth, int requestedDepth,
-                                               IntConsumer progress) {
-        int w=Math.max(72,Math.min(176,requestedWidth));
-        int h=Math.max(36,Math.round(source.getHeight()*(w/(float)source.getWidth())));
-        if(h>124){float f=124f/h;h=124;w=Math.max(72,Math.round(w*f));}
-        int d=Math.max(32,Math.min(80,requestedDepth));
+    public static ImageConverter.Result build(BufferedImage source,float[][] sourceDepth,GroqArchitectAI.Plan plan,
+                                               int requestedWidth,int requestedDepth,IntConsumer progress){
+        float pw=Math.max(.2f,plan.proportions().width()),ph=Math.max(.15f,plan.proportions().height()),pd=Math.max(.1f,plan.proportions().depth());
+        int w=clamp(requestedWidth,64,176);
+        int h=clamp(Math.round(w*(ph/pw)),28,140);
+        int d=clamp(Math.max(requestedDepth,Math.round(w*(pd/pw))),24,120);
         progress.accept(60);
 
         BufferedImage img=scale(source,w,h);
         float[][] depth=normalizeDepth(resizeDepth(sourceDepth,w,h));
-
-        Map<String,Integer> palette=new LinkedHashMap<>();
-        palette.put("minecraft:air",0);
-        int gray=id(palette,"minecraft:gray_concrete");
-        int lightGray=id(palette,"minecraft:light_gray_concrete");
-        int dark=id(palette,"minecraft:deepslate_tiles");
-        int trim=id(palette,"minecraft:polished_deepslate");
-        int stone=id(palette,"minecraft:stone_bricks");
-        int floor=id(palette,"minecraft:smooth_stone");
-        int black=id(palette,"minecraft:black_concrete");
-        int white=id(palette,"minecraft:white_concrete");
-        int brown=id(palette,"minecraft:brown_concrete");
-        int orange=id(palette,"minecraft:orange_concrete");
-        int yellow=id(palette,"minecraft:yellow_concrete");
-        int red=id(palette,"minecraft:red_concrete");
-        int blue=id(palette,"minecraft:blue_concrete");
-        int glass=id(palette,"minecraft:tinted_glass");
-        int iron=id(palette,"minecraft:iron_block");
-        int light=id(palette,"minecraft:sea_lantern");
+        Map<String,Integer> palette=createPalette();
         int[] blocks=new int[w*h*d];
+        List<Placed> carvers=new ArrayList<>();
 
-        GroqArchitectAI.Rect er=plan.entrance();
-        int x0=clamp(Math.round(er.x0()*w),3,w-8);
-        int x1=clamp(Math.round(er.x1()*w),x0+7,w-4);
-        int sy0=clamp(Math.round(er.y0()*h),2,h-12);
-        int sy1=clamp(Math.round(er.y1()*h),sy0+8,h-3);
-        int yBottom=h-1-sy1;
-        int yTop=h-1-sy0;
-        int portalZ=choosePortalZ(depth,er,d);
-        progress.accept(64);
-
-        // Broad facade is made from a few clean planes around the portal, never a pixel/depth sculpture.
-        int facadeMat=materialAt(plan,(er.x0()+er.x1())*.5f,Math.max(.05f,er.y0()-.08f),palette,gray);
-        int sideMat=materialAt(plan,Math.max(.05f,er.x0()-.08f),(er.y0()+er.y1())*.5f,palette,dark);
-        buildFacade(blocks,w,h,d,x0,x1,yBottom,yTop,portalZ,facadeMat,sideMat,trim);
-        progress.accept(69);
-
-        // Major AI-detected architecture becomes explicit primitives.
-        for(GroqArchitectAI.Structure s:plan.structures()){
-            if(s.confidence()<.35f)continue;
-            addStructure(blocks,w,h,d,img,depth,plan,s,portalZ,palette,gray,trim,stone,glass,iron);
+        List<GroqArchitectAI.Primitive> objects=new ArrayList<>(plan.objects());
+        objects.sort(Comparator.comparingDouble(GroqArchitectAI.Primitive::confidence).reversed());
+        int total=Math.max(1,objects.size()),done=0;
+        for(GroqArchitectAI.Primitive p:objects){
+            if(p.confidence()<.20f)continue;
+            Placed b=placeBox(p,depth,w,h,d);
+            int mat=palette.getOrDefault(p.minecraftBlock(),palette.get("minecraft:stone_bricks"));
+            if((p.minecraftBlock()==null||p.minecraftBlock().isBlank())&&p.imageBox()!=null) mat=sampleMaterial(img,p.imageBox(),palette);
+            String type=p.type();
+            switch(type){
+                case "opening","door" -> carvers.add(b);
+                case "window" -> fillBox(blocks,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,palette.get("minecraft:tinted_glass"));
+                case "floor" -> buildFloor(blocks,w,h,d,b,mat);
+                case "roof","slab","platform" -> buildSlab(blocks,w,h,d,b,mat,p.hollow());
+                case "column" -> buildRepeatedColumns(blocks,w,h,d,b,mat,p.repeats(),p.hollow());
+                case "beam","wall","detail","object","terrain" -> buildSolidOrShell(blocks,w,h,d,b,mat,p.hollow());
+                case "stairs" -> buildSlope(blocks,w,h,d,b,mat,p.axis(),true);
+                case "ramp" -> buildSlope(blocks,w,h,d,b,mat,p.axis(),false);
+                case "railing" -> buildRailing(blocks,w,h,d,b,mat,p.axis(),p.repeats());
+                case "arch" -> buildArch(blocks,w,h,d,b,mat);
+                case "tower" -> buildTower(blocks,w,h,d,b,mat,p.hollow());
+                default -> buildSolidOrShell(blocks,w,h,d,b,mat,p.hollow());
+            }
+            done++;
+            progress.accept(61+Math.round(30f*done/total));
         }
-        progress.accept(76);
 
-        // If the scene is strongly symmetrical, ensure the two portal supports are coherent.
-        if(plan.symmetry()>.58f) reinforcePortalSupports(blocks,w,h,d,x0,x1,yBottom,yTop,portalZ,trim,stone);
-
-        // Correct 3D ramp: image perspective controls width, but WORLD Y changes only with actual ramp rise.
-        buildRealRamp(blocks,w,h,d,plan.floor(),x0,x1,yBottom,portalZ,floor,trim,yellow);
-        progress.accept(82);
-
-        // Interior is a separate room/corridor extending behind the entrance.
-        int interiorEnd=buildInterior(blocks,w,h,d,plan.interior(),x0,x1,yBottom,yTop,portalZ,
-                gray,dark,floor,trim,light);
-        progress.accept(88);
-
-        // Add coherent detail bands rather than noisy individual blocks.
-        addPortalDetail(blocks,w,h,d,x0,x1,yBottom,yTop,portalZ,interiorEnd,trim,iron,light);
-        progress.accept(92);
-
-        // Material regions can deliberately override broad structural surfaces.
-        applyMaterialRegions(blocks,w,h,d,plan,palette,portalZ,yBottom,yTop);
-        progress.accept(95);
-
-        removeTinyComponents(blocks,w,h,d,10);
-        bridgeGaps(blocks,w,h,d);
-        carveDoorway(blocks,w,h,d,x0,x1,yBottom,yTop,portalZ);
+        // Carve only openings explicitly identified by the vision planner.
+        for(Placed c:carvers) carveBox(blocks,w,h,d,c.x0,c.y0,c.z0,c.x1,c.y1,c.z1);
+        progress.accept(94);
+        removeIsolatedSingles(blocks,w,h,d);
         progress.accept(99);
         return new ImageConverter.Result(w,h,d,blocks,palette);
     }
 
-    private static void buildFacade(int[]a,int w,int h,int d,int x0,int x1,int yb,int yt,int z,int facade,int side,int trim){
-        int outerL=Math.max(1,x0-Math.max(7,w/9));
-        int outerR=Math.min(w-2,x1+Math.max(7,w/9));
-        int top=Math.min(h-2,yt+Math.max(6,h/7));
-        int bottom=Math.max(0,yb-2);
-        // left and right structural fields
-        fillBox(a,w,h,d,outerL,bottom,z,x0-1,top,z+2,side);
-        fillBox(a,w,h,d,x1+1,bottom,z,outerR,top,z+2,side);
-        // clean lintel field over the portal
-        fillBox(a,w,h,d,x0,yt+1,z,x1,top,z+2,facade);
-        // strong portal frame
-        int fw=Math.max(2,Math.min(4,(x1-x0)/8));
-        fillBox(a,w,h,d,x0-fw,yb,z-2,x0-1,yt+2,z+2,trim);
-        fillBox(a,w,h,d,x1+1,yb,z-2,x1+fw,yt+2,z+2,trim);
-        fillBox(a,w,h,d,x0-fw,yt+1,z-2,x1+fw,yt+fw,z+2,trim);
+    private static Placed placeBox(GroqArchitectAI.Primitive p,float[][]depth,int w,int h,int d){
+        GroqArchitectAI.Box q=p.worldBox();
+        int x0=clamp(Math.round(q.x0()*(w-1)),0,w-1),x1=clamp(Math.round(q.x1()*(w-1)),x0,w-1);
+        int y0=clamp(Math.round(q.y0()*(h-1)),0,h-1),y1=clamp(Math.round(q.y1()*(h-1)),y0,h-1);
+        int z0=clamp(Math.round(q.z0()*(d-1)),0,d-1),z1=clamp(Math.round(q.z1()*(d-1)),z0,d-1);
+
+        // Depth AI is supporting evidence only: gently shift the object's Z, never reshape it pixel-by-pixel.
+        GroqArchitectAI.Rect r=p.imageBox();
+        if(r!=null&&p.confidence()<.92f){
+            float md=medianDepth(depth,r); int neural=clamp(Math.round((1f-md)*(d-1)),0,d-1);
+            int center=(z0+z1)/2,span=Math.max(1,z1-z0); int blended=Math.round(center*.78f+neural*.22f);
+            z0=clamp(blended-span/2,0,d-1); z1=clamp(z0+span,z0,d-1);
+        }
+
+        String type=p.type();
+        if(Set.of("wall","window","door","opening","beam","column","railing","arch").contains(type)&&z1-z0<1) z1=Math.min(d-1,z0+1);
+        if(Set.of("floor","roof","slab","platform").contains(type)&&y1-y0<1) y1=Math.min(h-1,y0+1);
+        return new Placed(x0,y0,z0,x1,y1,z1);
     }
 
-    private static void addStructure(int[]a,int w,int h,int d,BufferedImage img,float[][]depth,
-                                     GroqArchitectAI.Plan plan,GroqArchitectAI.Structure s,int portalZ,
-                                     Map<String,Integer>palette,int gray,int trim,int stone,int glass,int iron){
-        GroqArchitectAI.Rect r=s.box();
-        int ax0=clamp(Math.round(r.x0()*w),0,w-1),ax1=clamp(Math.round(r.x1()*w),ax0,w-1);
-        int sy0=clamp(Math.round(r.y0()*h),0,h-1),sy1=clamp(Math.round(r.y1()*h),sy0,h-1);
-        int ay0=h-1-sy1,ay1=h-1-sy0;
-        int z=structureZ(depth,r,d,portalZ,s.depthLayer());
-        int mat=materialForStructure(plan,s,palette,sampleMaterial(img,r,palette,gray));
-        String t=s.type();
-        if(t.equals("column")){
-            int thick=Math.max(3,Math.min(6,Math.max(1,ax1-ax0+1)/2));
-            fillBox(a,w,h,d,ax0,ay0,z-thick/2,ax1,ay1,z+thick,mat);
-            // architectural ribs
-            for(int y=ay0+2;y<=ay1;y+=5)fillBox(a,w,h,d,ax0,y,z-1,ax1,Math.min(ay1,y+1),z+thick+1,trim);
-        }else if(t.equals("beam")||t.equals("roof")||t.equals("trim")){
-            int thick=t.equals("roof")?4:3;
-            fillBox(a,w,h,d,ax0,ay0,z,ax1,ay1,z+thick,mat==gray?stone:mat);
-        }else if(t.equals("window")){
-            fillBox(a,w,h,d,ax0,ay0,z,ax1,ay1,z+1,glass);
-            outlineRect(a,w,h,d,ax0,ay0,ax1,ay1,z,trim);
-        }else if(t.equals("platform")||t.equals("railing")){
-            int y=ay0;
-            fillBox(a,w,h,d,ax0,y,z,ax1,Math.min(h-1,y+(t.equals("railing")?2:1)),Math.min(d-1,z+5),t.equals("railing")?iron:mat);
-        }else if(t.equals("door")||t.equals("opening")){
-            carveBox(a,w,h,d,ax0,ay0,Math.max(0,z-3),ax1,ay1,Math.min(d-1,z+6));
-            outlineRect(a,w,h,d,ax0,ay0,ax1,ay1,z,trim);
+    private static void buildFloor(int[]a,int w,int h,int d,Placed b,int mat){
+        int y=b.y0; fillBox(a,w,h,d,b.x0,y,b.z0,b.x1,Math.min(h-1,y+1),b.z1,mat);
+    }
+    private static void buildSlab(int[]a,int w,int h,int d,Placed b,int mat,boolean hollow){
+        int y0=b.y0,y1=Math.min(b.y1,y0+Math.max(1,Math.min(3,b.y1-b.y0)));
+        if(hollow) shellBox(a,w,h,d,b.x0,y0,b.z0,b.x1,y1,b.z1,mat); else fillBox(a,w,h,d,b.x0,y0,b.z0,b.x1,y1,b.z1,mat);
+    }
+    private static void buildSolidOrShell(int[]a,int w,int h,int d,Placed b,int mat,boolean hollow){
+        if(hollow)shellBox(a,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,mat);else fillBox(a,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,mat);
+    }
+    private static void buildRepeatedColumns(int[]a,int w,int h,int d,Placed b,int mat,int repeats,boolean hollow){
+        repeats=Math.max(1,repeats);
+        if(repeats==1){buildSolidOrShell(a,w,h,d,b,mat,hollow);return;}
+        int span=Math.max(1,b.x1-b.x0),step=Math.max(1,span/Math.max(1,repeats-1)),th=Math.max(1,span/Math.max(8,repeats*4));
+        for(int i=0;i<repeats;i++){int cx=clamp(b.x0+i*step,b.x0,b.x1);Placed c=new Placed(Math.max(b.x0,cx-th/2),b.y0,b.z0,Math.min(b.x1,cx+th/2),b.y1,b.z1);buildSolidOrShell(a,w,h,d,c,mat,hollow);}
+    }
+    private static void buildSlope(int[]a,int w,int h,int d,Placed b,int mat,String axis,boolean stairs){
+        if("x".equals(axis)){
+            int run=Math.max(1,b.x1-b.x0); for(int x=b.x0;x<=b.x1;x++){float t=(x-b.x0)/(float)run;int y=Math.round(b.y0+(b.y1-b.y0)*t);int thickness=stairs?Math.max(1,Math.round(run/(float)Math.max(1,b.y1-b.y0+1))):1;for(int z=b.z0;z<=b.z1;z++)for(int xx=x;xx<=Math.min(b.x1,x+thickness-1);xx++)set(a,w,h,d,xx,y,z,mat);}
         }else{
-            fillBox(a,w,h,d,ax0,ay0,z,ax1,ay1,z+2,mat);
+            int run=Math.max(1,b.z1-b.z0); for(int z=b.z0;z<=b.z1;z++){float t=(z-b.z0)/(float)run;int y=Math.round(b.y0+(b.y1-b.y0)*t);int thickness=stairs?Math.max(1,Math.round(run/(float)Math.max(1,b.y1-b.y0+1))):1;for(int x=b.x0;x<=b.x1;x++)for(int zz=z;zz<=Math.min(b.z1,z+thickness-1);zz++)set(a,w,h,d,x,y,zz,mat);}
         }
-        if(s.mirror()) mirrorBox(a,w,h,d,ax0,ay0,ax1,ay1,z,Math.min(d-1,z+4));
     }
-
-    private static void buildRealRamp(int[]a,int w,int h,int d,GroqArchitectAI.Floor f,
-                                      int x0,int x1,int entranceY,int portalZ,int floor,int trim,int accent){
-        int frontZ=2;
-        int run=Math.max(4,portalZ-frontZ);
-        int rise=Math.max(1,Math.min(7,Math.round(run*.18f)));
-        int frontY=Math.max(0,entranceY-rise);
-        int cx=clamp(Math.round(f.centerX()*w),0,w-1);
-        int topWidth=Math.max(x1-x0+1,Math.round(f.topWidth()*w));
-        int bottomWidth=Math.max(topWidth+4,Math.round(f.bottomWidth()*w));
-        topWidth=Math.min(w-4,topWidth);bottomWidth=Math.min(w-2,bottomWidth);
-        for(int z=frontZ;z<=portalZ;z++){
-            float t=(z-frontZ)/(float)Math.max(1,run);
-            int y=Math.round(frontY+(entranceY-frontY)*t);
-            int width=Math.round(bottomWidth+(topWidth-bottomWidth)*t);
-            int left=clamp(cx-width/2,1,w-2),right=clamp(left+width-1,left,w-2);
-            for(int x=left;x<=right;x++)set(a,w,h,d,x,y,z,floor);
-            set(a,w,h,d,left,y,z,trim);set(a,w,h,d,right,y,z,trim);
-            if((z-frontZ)%7==2){
-                for(int x=Math.max(left+2,cx-1);x<=Math.min(right-2,cx+1);x++)set(a,w,h,d,x,y+1,z,accent);
-            }
+    private static void buildRailing(int[]a,int w,int h,int d,Placed b,int mat,String axis,int repeats){
+        int posts=Math.max(2,repeats>1?repeats:Math.max(2,("x".equals(axis)?b.x1-b.x0:b.z1-b.z0)/5));
+        if("x".equals(axis)){
+            for(int i=0;i<posts;i++){int x=b.x0+Math.round((b.x1-b.x0)*i/(float)(posts-1));fillBox(a,w,h,d,x,b.y0,b.z0,x,b.y1,b.z1,mat);}fillBox(a,w,h,d,b.x0,b.y1,b.z0,b.x1,b.y1,b.z1,mat);
+        }else{
+            for(int i=0;i<posts;i++){int z=b.z0+Math.round((b.z1-b.z0)*i/(float)(posts-1));fillBox(a,w,h,d,b.x0,b.y0,z,b.x1,b.y1,z,mat);}fillBox(a,w,h,d,b.x0,b.y1,b.z0,b.x1,b.y1,b.z1,mat);
+        }
+    }
+    private static void buildArch(int[]a,int w,int h,int d,Placed b,int mat){
+        int width=Math.max(3,b.x1-b.x0+1),height=Math.max(3,b.y1-b.y0+1),th=Math.max(1,Math.min(3,width/8));
+        fillBox(a,w,h,d,b.x0,b.y0,b.z0,Math.min(b.x1,b.x0+th),b.y1,b.z1,mat);
+        fillBox(a,w,h,d,Math.max(b.x0,b.x1-th),b.y0,b.z0,b.x1,b.y1,b.z1,mat);
+        int cx=(b.x0+b.x1)/2,rx=Math.max(2,width/2),ry=Math.max(2,Math.min(height/2,rx));
+        for(int x=b.x0;x<=b.x1;x++){float nx=(x-cx)/(float)rx;if(Math.abs(nx)>1)continue;int y=b.y1-Math.round((float)(ry*Math.sqrt(Math.max(0,1-nx*nx))));for(int yy=y;yy<=Math.min(b.y1,y+th);yy++)for(int z=b.z0;z<=b.z1;z++)set(a,w,h,d,x,yy,z,mat);}
+    }
+    private static void buildTower(int[]a,int w,int h,int d,Placed b,int mat,boolean hollow){
+        int cx=(b.x0+b.x1)/2,cz=(b.z0+b.z1)/2,rx=Math.max(1,(b.x1-b.x0)/2),rz=Math.max(1,(b.z1-b.z0)/2);
+        for(int y=b.y0;y<=b.y1;y++)for(int x=b.x0;x<=b.x1;x++)for(int z=b.z0;z<=b.z1;z++){
+            float dx=(x-cx)/(float)rx,dz=(z-cz)/(float)rz,v=dx*dx+dz*dz; if(v<=1f&&(!hollow||v>.68f||y==b.y0||y==b.y1))set(a,w,h,d,x,y,z,mat);
         }
     }
 
-    private static int buildInterior(int[]a,int w,int h,int d,GroqArchitectAI.Interior in,
-                                     int x0,int x1,int yb,int yt,int portalZ,
-                                     int wall,int ceiling,int floor,int trim,int light){
-        float scale=in.exists()?in.depthScale():.30f;
-        int available=Math.max(8,d-portalZ-4);
-        int len=Math.max(10,Math.min(available,Math.round(available*scale)));
-        int end=Math.min(d-3,portalZ+len);
-        int innerX0=x0+2,innerX1=x1-2,innerYb=yb,innerYt=Math.max(yb+5,yt-2);
-        for(int z=portalZ;z<=end;z++){
-            for(int x=innerX0;x<=innerX1;x++){
-                set(a,w,h,d,x,innerYb,z,floor);
-                set(a,w,h,d,x,innerYt,z,ceiling);
-            }
-            for(int y=innerYb;y<=innerYt;y++){
-                set(a,w,h,d,innerX0,y,z,wall);set(a,w,h,d,innerX1,y,z,wall);
-            }
-            if((z-portalZ)%6==3){
-                int cx=(innerX0+innerX1)/2;
-                for(int x=Math.max(innerX0+2,cx-1);x<=Math.min(innerX1-2,cx+1);x++)set(a,w,h,d,x,innerYt-1,z,light);
-            }
-        }
-        // back bulkhead with a smaller secondary doorway
-        int cx=(innerX0+innerX1)/2;
-        for(int x=innerX0;x<=innerX1;x++)for(int y=innerYb;y<=innerYt;y++){
-            boolean door=Math.abs(x-cx)<=2 && y<=innerYb+5;
-            if(!door)set(a,w,h,d,x,y,end,wall);
-        }
-        outlineRect(a,w,h,d,cx-3,innerYb,cx+3,innerYb+6,end,trim);
-        return end;
+    private static Map<String,Integer> createPalette(){
+        LinkedHashMap<String,Integer>p=new LinkedHashMap<>();p.put("minecraft:air",0);
+        String[] blocks={"minecraft:stone_bricks","minecraft:stone","minecraft:smooth_stone","minecraft:andesite","minecraft:polished_andesite","minecraft:gray_concrete","minecraft:light_gray_concrete","minecraft:black_concrete","minecraft:white_concrete","minecraft:brown_concrete","minecraft:red_concrete","minecraft:orange_concrete","minecraft:yellow_concrete","minecraft:green_concrete","minecraft:blue_concrete","minecraft:deepslate_tiles","minecraft:polished_deepslate","minecraft:polished_blackstone_bricks","minecraft:bricks","minecraft:quartz_block","minecraft:oak_planks","minecraft:spruce_planks","minecraft:dark_oak_planks","minecraft:tinted_glass","minecraft:glass","minecraft:iron_block","minecraft:sea_lantern"};
+        for(String b:blocks)p.put(b,p.size());return p;
+    }
+    private static int sampleMaterial(BufferedImage img,GroqArchitectAI.Rect r,Map<String,Integer>p){
+        int x0=clamp(Math.round(r.x0()*(img.getWidth()-1)),0,img.getWidth()-1),x1=clamp(Math.round(r.x1()*(img.getWidth()-1)),x0,img.getWidth()-1);
+        int y0=clamp(Math.round(r.y0()*(img.getHeight()-1)),0,img.getHeight()-1),y1=clamp(Math.round(r.y1()*(img.getHeight()-1)),y0,img.getHeight()-1);
+        long rr=0,gg=0,bb=0,n=0;for(int y=y0;y<=y1;y+=Math.max(1,(y1-y0)/12+1))for(int x=x0;x<=x1;x+=Math.max(1,(x1-x0)/12+1)){int c=img.getRGB(x,y);rr+=(c>>>16)&255;gg+=(c>>>8)&255;bb+=c&255;n++;}
+        int R=(int)(rr/Math.max(1,n)),G=(int)(gg/Math.max(1,n)),B=(int)(bb/Math.max(1,n));
+        String b;if(Math.max(R,Math.max(G,B))<55)b="minecraft:black_concrete";else if(Math.abs(R-G)<18&&Math.abs(G-B)<18)b=R>190?"minecraft:white_concrete":R>125?"minecraft:light_gray_concrete":"minecraft:gray_concrete";else if(R>G*1.35&&R>B*1.35)b="minecraft:red_concrete";else if(R>170&&G>110&&B<90)b="minecraft:orange_concrete";else if(R>170&&G>155&&B<100)b="minecraft:yellow_concrete";else if(B>R*1.25&&B>G*1.15)b="minecraft:blue_concrete";else if(G>R*1.2&&G>B*1.15)b="minecraft:green_concrete";else if(R>110&&G>75&&B<70)b="minecraft:brown_concrete";else b="minecraft:stone_bricks";return p.getOrDefault(b,1);
     }
 
-    private static void reinforcePortalSupports(int[]a,int w,int h,int d,int x0,int x1,int yb,int yt,int z,int trim,int stone){
-        int pw=Math.max(3,Math.min(6,(x1-x0)/7));
-        fillBox(a,w,h,d,x0-pw,yb,z-4,x0-1,yt+5,z+4,trim);
-        fillBox(a,w,h,d,x1+1,yb,z-4,x1+pw,yt+5,z+4,trim);
-        // outer shoulders
-        fillBox(a,w,h,d,x0-pw-3,yb,z-2,x0-pw-1,yt+1,z+3,stone);
-        fillBox(a,w,h,d,x1+pw+1,yb,z-2,x1+pw+3,yt+1,z+3,stone);
-    }
+    private static float medianDepth(float[][]d,GroqArchitectAI.Rect r){int h=d.length,w=d[0].length;int x0=clamp(Math.round(r.x0()*(w-1)),0,w-1),x1=clamp(Math.round(r.x1()*(w-1)),x0,w-1),y0=clamp(Math.round(r.y0()*(h-1)),0,h-1),y1=clamp(Math.round(r.y1()*(h-1)),y0,h-1);float[]v=new float[Math.max(1,(x1-x0+1)*(y1-y0+1))];int k=0;for(int y=y0;y<=y1;y+=2)for(int x=x0;x<=x1;x+=2)v[k++]=d[y][x];if(k==0)return .5f;Arrays.sort(v,0,k);return v[k/2];}
+    private static BufferedImage scale(BufferedImage s,int w,int h){BufferedImage o=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);Graphics2D g=o.createGraphics();g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BILINEAR);g.drawImage(s,0,0,w,h,null);g.dispose();return o;}
+    private static float[][] resizeDepth(float[][]s,int w,int h){int sh=s.length,sw=s[0].length;float[][]o=new float[h][w];for(int y=0;y<h;y++){int sy=Math.min(sh-1,Math.round(y*(sh-1f)/Math.max(1,h-1)));for(int x=0;x<w;x++){int sx=Math.min(sw-1,Math.round(x*(sw-1f)/Math.max(1,w-1)));o[y][x]=s[sy][sx];}}return o;}
+    private static float[][] normalizeDepth(float[][]d){float lo=Float.POSITIVE_INFINITY,hi=Float.NEGATIVE_INFINITY;for(float[]r:d)for(float v:r)if(Float.isFinite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v);}float range=Math.max(1e-5f,hi-lo);for(int y=0;y<d.length;y++)for(int x=0;x<d[0].length;x++)d[y][x]=(d[y][x]-lo)/range;return d;}
 
-    private static void addPortalDetail(int[]a,int w,int h,int d,int x0,int x1,int yb,int yt,int z,int end,int trim,int iron,int light){
-        int cx=(x0+x1)/2;
-        // overhead layered beams
-        for(int layer=0;layer<3;layer++)fillBox(a,w,h,d,x0-4-layer,yt+2+layer,z-4-layer,x1+4+layer,yt+3+layer,z+2,layer==1?iron:trim);
-        // paired wall lights
-        for(int side:new int[]{x0-3,x1+3})for(int zz=z+3;zz<Math.min(end,z+16);zz+=7)set(a,w,h,d,side,Math.min(h-2,yb+5),zz,light);
-        // center ceiling spine
-        for(int zz=z+2;zz<end;zz++)if((zz-z)%3==0)set(a,w,h,d,cx,yt-1,zz,iron);
-    }
-
-    private static void applyMaterialRegions(int[]a,int w,int h,int d,GroqArchitectAI.Plan plan,Map<String,Integer>palette,int portalZ,int yb,int yt){
-        if(plan.materials().isEmpty())return;
-        // Only recolor existing facade/front structure; never create geometry from material regions.
-        for(GroqArchitectAI.MaterialRegion mr:plan.materials()){
-            Integer id=palette.get(mr.minecraftBlock());if(id==null||mr.confidence()<.45f)continue;
-            GroqArchitectAI.Rect r=mr.box();
-            int x0=clamp(Math.round(r.x0()*w),0,w-1),x1=clamp(Math.round(r.x1()*w),x0,w-1);
-            int sy0=clamp(Math.round(r.y0()*h),0,h-1),sy1=clamp(Math.round(r.y1()*h),sy0,h-1);
-            int wy0=h-1-sy1,wy1=h-1-sy0;
-            for(int y=wy0;y<=wy1;y++)for(int x=x0;x<=x1;x++)for(int z=Math.max(0,portalZ-6);z<=Math.min(d-1,portalZ+6);z++){
-                int idx=index(w,d,x,y,z);if(a[idx]!=0)a[idx]=id;
-            }
-        }
-    }
-
-    private static int materialForStructure(GroqArchitectAI.Plan plan,GroqArchitectAI.Structure s,Map<String,Integer>palette,int fallback){
-        String m=s.material();
-        if(m.contains("glass"))return palette.getOrDefault("minecraft:tinted_glass",fallback);
-        if(m.contains("metal")||m.contains("steel")||m.contains("iron"))return palette.getOrDefault("minecraft:iron_block",fallback);
-        if(m.contains("black"))return palette.getOrDefault("minecraft:black_concrete",fallback);
-        if(m.contains("dark"))return palette.getOrDefault("minecraft:deepslate_tiles",fallback);
-        if(m.contains("stone"))return palette.getOrDefault("minecraft:stone_bricks",fallback);
-        float cx=(s.box().x0()+s.box().x1())*.5f,cy=(s.box().y0()+s.box().y1())*.5f;
-        return materialAt(plan,cx,cy,palette,fallback);
-    }
-
-    private static int materialAt(GroqArchitectAI.Plan p,float x,float y,Map<String,Integer>palette,int fallback){
-        GroqArchitectAI.MaterialRegion best=null;
-        for(GroqArchitectAI.MaterialRegion m:p.materials()){
-            GroqArchitectAI.Rect r=m.box();
-            if(x>=r.x0()&&x<=r.x1()&&y>=r.y0()&&y<=r.y1()&&(best==null||m.confidence()>best.confidence()))best=m;
-        }
-        return best==null?fallback:palette.getOrDefault(best.minecraftBlock(),fallback);
-    }
-
-    private static int sampleMaterial(BufferedImage img,GroqArchitectAI.Rect r,Map<String,Integer>palette,int fallback){
-        int w=img.getWidth(),h=img.getHeight();
-        int x0=clamp(Math.round(r.x0()*w),0,w-1),x1=clamp(Math.round(r.x1()*w),x0,w-1);
-        int y0=clamp(Math.round(r.y0()*h),0,h-1),y1=clamp(Math.round(r.y1()*h),y0,h-1);
-        long rs=0,gs=0,bs=0,n=0;int sx=Math.max(1,(x1-x0+1)/8),sy=Math.max(1,(y1-y0+1)/8);
-        for(int y=y0;y<=y1;y+=sy)for(int x=x0;x<=x1;x+=sx){int c=img.getRGB(x,y);rs+=(c>>>16)&255;gs+=(c>>>8)&255;bs+=c&255;n++;}
-        if(n==0)return fallback;int rr=(int)(rs/n),gg=(int)(gs/n),bb=(int)(bs/n);int max=Math.max(rr,Math.max(gg,bb)),min=Math.min(rr,Math.min(gg,bb));
-        float sat=(max-min)/255f,lum=(rr+gg+bb)/(3f*255f);
-        if(lum<.12)return palette.getOrDefault("minecraft:black_concrete",fallback);
-        if(lum<.25)return palette.getOrDefault("minecraft:deepslate_tiles",fallback);
-        if(sat<.08&&lum>.78)return palette.getOrDefault("minecraft:white_concrete",fallback);
-        if(sat<.12&&lum>.60)return palette.getOrDefault("minecraft:light_gray_concrete",fallback);
-        if(rr>170&&gg<95&&bb<90)return palette.getOrDefault("minecraft:red_concrete",fallback);
-        if(rr>180&&gg>120&&bb<90)return palette.getOrDefault("minecraft:orange_concrete",fallback);
-        if(rr>170&&gg>155&&bb<110)return palette.getOrDefault("minecraft:yellow_concrete",fallback);
-        if(bb>rr*1.2&&bb>gg*1.1)return palette.getOrDefault("minecraft:blue_concrete",fallback);
-        return fallback;
-    }
-
-    private static int structureZ(float[][]depth,GroqArchitectAI.Rect r,int d,int portalZ,String layer){
-        float med=median(depth,r);int raw=toZ(med,d);
-        // Keep architecture coherent around the portal while retaining depth ordering from the neural model.
-        int mixed=Math.round(portalZ*.65f+raw*.35f);
-        if("front".equals(layer))mixed-=3;else if("back".equals(layer))mixed+=4;
-        return clamp(mixed,2,d-6);
-    }
-
-    private static int choosePortalZ(float[][]depth,GroqArchitectAI.Rect r,int d){
-        int raw=toZ(median(depth,r),d);
-        int lo=Math.max(8,d/5),hi=Math.max(lo+2,d*2/5);
-        return clamp(raw,lo,hi);
-    }
-
-    private static float median(float[][]dep,GroqArchitectAI.Rect r){
-        int h=dep.length,w=dep[0].length,x0=clamp(Math.round(r.x0()*w),0,w-1),x1=clamp(Math.round(r.x1()*w),x0,w-1),y0=clamp(Math.round(r.y0()*h),0,h-1),y1=clamp(Math.round(r.y1()*h),y0,h-1);
-        float[]v=new float[Math.max(1,(x1-x0+1)*(y1-y0+1))];int k=0;for(int y=y0;y<=y1;y++)for(int x=x0;x<=x1;x++)v[k++]=dep[y][x];Arrays.sort(v,0,k);return v[Math.max(0,k/2)];
-    }
-
-    private static BufferedImage scale(BufferedImage s,int w,int h){BufferedImage o=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);Graphics2D g=o.createGraphics();g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BICUBIC);g.drawImage(s,0,0,w,h,null);g.dispose();return o;}
-    private static float[][] resizeDepth(float[][]src,int w,int h){int sh=src.length,sw=src[0].length;float[][]o=new float[h][w];for(int y=0;y<h;y++){float yy=y*(sh-1f)/Math.max(1,h-1);int y0=(int)yy,y1=Math.min(sh-1,y0+1);float fy=yy-y0;for(int x=0;x<w;x++){float xx=x*(sw-1f)/Math.max(1,w-1);int x0=(int)xx,x1=Math.min(sw-1,x0+1);float fx=xx-x0;o[y][x]=(src[y0][x0]*(1-fx)+src[y0][x1]*fx)*(1-fy)+(src[y1][x0]*(1-fx)+src[y1][x1]*fx)*fy;}}return o;}
-    private static float[][] normalizeDepth(float[][]d){int h=d.length,w=d[0].length;float lower=avg(d,w/3,h*2/3,w*2/3,h-1),upper=avg(d,w/3,0,w*2/3,h/3);if(lower>upper)for(int y=0;y<h;y++)for(int x=0;x<w;x++)d[y][x]=1-d[y][x];float[]v=new float[h*w];int k=0;for(float[]row:d)for(float q:row)v[k++]=q;Arrays.sort(v);float lo=v[(int)(v.length*.03)],hi=v[Math.min(v.length-1,(int)(v.length*.97))],range=Math.max(1e-6f,hi-lo);for(int y=0;y<h;y++)for(int x=0;x<w;x++)d[y][x]=clampf((d[y][x]-lo)/range,0,1);return d;}
-    private static float avg(float[][]d,int x0,int y0,int x1,int y1){float s=0;int n=0;for(int y=y0;y<=y1&&y<d.length;y++)for(int x=x0;x<=x1&&x<d[0].length;x++){s+=d[y][x];n++;}return s/Math.max(1,n);}
-    private static int toZ(float dep,int d){return clamp(Math.round((1-clampf(dep,0,1))*(d-8)),1,d-4);}
-
-    private static void outlineRect(int[]a,int w,int h,int d,int x0,int y0,int x1,int y1,int z,int mat){for(int x=x0;x<=x1;x++){set(a,w,h,d,x,y0,z,mat);set(a,w,h,d,x,y1,z,mat);}for(int y=y0;y<=y1;y++){set(a,w,h,d,x0,y,z,mat);set(a,w,h,d,x1,y,z,mat);}}
-    private static void fillBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1,int mat){int ax0=Math.max(0,Math.min(x0,x1)),ax1=Math.min(w-1,Math.max(x0,x1)),ay0=Math.max(0,Math.min(y0,y1)),ay1=Math.min(h-1,Math.max(y0,y1)),az0=Math.max(0,Math.min(z0,z1)),az1=Math.min(d-1,Math.max(z0,z1));for(int y=ay0;y<=ay1;y++)for(int z=az0;z<=az1;z++)for(int x=ax0;x<=ax1;x++)set(a,w,h,d,x,y,z,mat);}
-    private static void carveBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1){int ax0=Math.max(0,Math.min(x0,x1)),ax1=Math.min(w-1,Math.max(x0,x1)),ay0=Math.max(0,Math.min(y0,y1)),ay1=Math.min(h-1,Math.max(y0,y1)),az0=Math.max(0,Math.min(z0,z1)),az1=Math.min(d-1,Math.max(z0,z1));for(int y=ay0;y<=ay1;y++)for(int z=az0;z<=az1;z++)for(int x=ax0;x<=ax1;x++)a[index(w,d,x,y,z)]=0;}
-    private static void mirrorBox(int[]a,int w,int h,int d,int x0,int y0,int x1,int y1,int z0,int z1){int mx0=w-1-x1,mx1=w-1-x0;for(int y=Math.max(0,y0);y<=Math.min(h-1,y1);y++)for(int z=Math.max(0,z0);z<=Math.min(d-1,z1);z++)for(int x=Math.max(0,x0);x<=Math.min(w-1,x1);x++){int v=a[index(w,d,x,y,z)];if(v!=0)set(a,w,h,d,mx0+(x-x0),y,z,v);}}
-    private static void carveDoorway(int[]a,int w,int h,int d,int x0,int x1,int yb,int yt,int portalZ){for(int x=x0+2;x<=x1-2;x++)for(int y=yb+1;y<=yt-2;y++)for(int z=Math.max(0,portalZ-4);z<portalZ;z++)a[index(w,d,x,y,z)]=0;}
-    private static void removeTinyComponents(int[]a,int w,int h,int d,int min){boolean[]vis=new boolean[a.length];int[]q=new int[a.length];int[][]ds={{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};for(int i=0;i<a.length;i++){if(a[i]==0||vis[i])continue;int s=0,e=0;q[e++]=i;vis[i]=true;while(s<e){int p=q[s++],y=p/(w*d),rem=p-y*w*d,z=rem/w,x=rem-z*w;for(int[]v:ds){int nx=x+v[0],ny=y+v[1],nz=z+v[2];if(nx<0||nx>=w||ny<0||ny>=h||nz<0||nz>=d)continue;int ni=index(w,d,nx,ny,nz);if(!vis[ni]&&a[ni]!=0){vis[ni]=true;q[e++]=ni;}}}if(e<min)for(int j=0;j<e;j++)a[q[j]]=0;}}
-    private static void bridgeGaps(int[]a,int w,int h,int d){int[]c=a.clone();for(int y=1;y<h-1;y++)for(int z=1;z<d-1;z++)for(int x=1;x<w-1;x++){int i=index(w,d,x,y,z);if(c[i]!=0)continue;int l=c[index(w,d,x-1,y,z)],r=c[index(w,d,x+1,y,z)],u=c[index(w,d,x,y+1,z)],dn=c[index(w,d,x,y-1,z)];if(l!=0&&r!=0)a[i]=l;else if(u!=0&&dn!=0)a[i]=u;}}
-    private static int id(Map<String,Integer>p,String b){return p.computeIfAbsent(b,k->p.size());}
-    private static int index(int w,int d,int x,int y,int z){return x+z*w+y*w*d;}
-    private static void set(int[]a,int w,int h,int d,int x,int y,int z,int v){if(x>=0&&x<w&&y>=0&&y<h&&z>=0&&z<d)a[index(w,d,x,y,z)]=v;}
-    private static int clamp(int v,int lo,int hi){return Math.max(lo,Math.min(hi,v));}
-    private static float clampf(float v,float lo,float hi){return Math.max(lo,Math.min(hi,v));}
+    private static void fillBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1,int mat){for(int y=Math.max(0,y0);y<=Math.min(h-1,y1);y++)for(int z=Math.max(0,z0);z<=Math.min(d-1,z1);z++)for(int x=Math.max(0,x0);x<=Math.min(w-1,x1);x++)a[index(w,d,x,y,z)]=mat;}
+    private static void shellBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1,int mat){for(int y=y0;y<=y1;y++)for(int z=z0;z<=z1;z++)for(int x=x0;x<=x1;x++)if(x==x0||x==x1||y==y0||y==y1||z==z0||z==z1)set(a,w,h,d,x,y,z,mat);}
+    private static void carveBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1){fillBox(a,w,h,d,x0,y0,z0,x1,y1,z1,0);}
+    private static void removeIsolatedSingles(int[]a,int w,int h,int d){int[]src=a.clone();for(int y=1;y<h-1;y++)for(int z=1;z<d-1;z++)for(int x=1;x<w-1;x++){int i=index(w,d,x,y,z);if(src[i]==0)continue;int n=0;if(src[index(w,d,x-1,y,z)]!=0)n++;if(src[index(w,d,x+1,y,z)]!=0)n++;if(src[index(w,d,x,y-1,z)]!=0)n++;if(src[index(w,d,x,y+1,z)]!=0)n++;if(src[index(w,d,x,y,z-1)]!=0)n++;if(src[index(w,d,x,y,z+1)]!=0)n++;if(n==0)a[i]=0;}}
+    private static int index(int w,int d,int x,int y,int z){return x+z*w+y*w*d;} private static void set(int[]a,int w,int h,int d,int x,int y,int z,int v){if(x>=0&&x<w&&y>=0&&y<h&&z>=0&&z<d)a[index(w,d,x,y,z)]=v;} private static int clamp(int v,int a,int b){return Math.max(a,Math.min(b,v));}
+    private record Placed(int x0,int y0,int z0,int x1,int y1,int z1){}
 }
