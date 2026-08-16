@@ -36,13 +36,21 @@ public final class Image2SchemScreen extends Screen {
         addDrawableChild(depthField);
 
         addDrawableChild(ButtonWidget.builder(Text.literal("Open Input Folder"), button -> {
-            Util.getOperatingSystem().open(Image2SchemClient.inputFolder());
-            status = "Input folder opened.";
+            try {
+                Util.getOperatingSystem().open(Image2SchemClient.inputFolder());
+                status = "Input folder opened.";
+            } catch (Exception e) {
+                status = "Could not open input folder: " + e.getMessage();
+            }
         }).dimensions(left, top + 102, 114, 20).build());
 
         addDrawableChild(ButtonWidget.builder(Text.literal("Open Output Folder"), button -> {
-            Util.getOperatingSystem().open(Image2SchemClient.outputFolder());
-            status = "Output folder opened.";
+            try {
+                Util.getOperatingSystem().open(Image2SchemClient.outputFolder());
+                status = "Output folder opened.";
+            } catch (Exception e) {
+                status = "Could not open output folder: " + e.getMessage();
+            }
         }).dimensions(left + 126, top + 102, 114, 20).build());
 
         addDrawableChild(ButtonWidget.builder(Text.literal("Generate Build"), button -> generate()).dimensions(left, top + 134, 240, 20).build());
@@ -71,7 +79,9 @@ public final class Image2SchemScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
-        renderBackground(context, mouseX, mouseY, deltaTicks);
+        // Deliberately avoid Screen#renderBackground here. Some heavily-modded clients
+        // replace the background/blur renderer and can crash as soon as this screen opens.
+        context.fill(0, 0, this.width, this.height, 0xCC101014);
         super.render(context, mouseX, mouseY, deltaTicks);
 
         int center = this.width / 2;
