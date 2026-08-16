@@ -5,8 +5,13 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,12 +24,27 @@ public final class Image2SchemClient implements ClientModInitializer {
     private static final Path INPUT = ROOT.resolve("input");
     private static final Path OUTPUT = ROOT.resolve("output");
 
+    private static final KeyBinding OPEN_MENU = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+            "key.image2schem.open_menu",
+            InputUtil.Type.KEYSYM,
+            GLFW.GLFW_KEY_K,
+            KeyBinding.Category.MISC
+    ));
+
     @Override
     public void onInitializeClient() {
         try {
             Files.createDirectories(INPUT);
             Files.createDirectories(OUTPUT);
         } catch (Exception ignored) {}
+
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            while (OPEN_MENU.wasPressed()) {
+                if (client.currentScreen == null) {
+                    client.setScreen(new Image2SchemScreen());
+                }
+            }
+        });
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) -> {
             var root = literal("image2schem");
@@ -60,23 +80,32 @@ public final class Image2SchemClient implements ClientModInitializer {
         });
     }
 
+    static Path inputFolder() {
+        return INPUT;
+    }
+
+    static Path outputFolder() {
+        return OUTPUT;
+    }
+
+    static GenerationResult generateFile(String filename, int width, int depth) throws Exception {
+        Path in = INPUT.resolve(filename).normalize();
+        if (!in.startsWith(INPUT)) throw new IllegalArgumentException("Invalid filename");
+        if (!Files.exists(in)) throw new IllegalArgumentException("Image not found: " + in.toAbsolutePath());
+
+        ImageConverter.Result result = ImageConverter.convert(in, width, depth);
+        String clean = filename.replaceAll("\\.[^.]+$", "").replaceAll("[^A-Za-z0-9_-]", "_");
+        Path out = OUTPUT.resolve(clean + "-" + result.width() + "x" + result.height() + ".schem");
+        SchemWriter.write(out, result, clean);
+        return new GenerationResult(out, result.width(), result.height(), result.length());
+    }
+
     private static int generate(FabricClientCommandSource source, String filename, int width, int depth) {
         try {
-            Path in = INPUT.resolve(filename).normalize();
-            if (!in.startsWith(INPUT)) throw new IllegalArgumentException("Invalid filename");
-            if (!Files.exists(in)) {
-                source.sendError(Text.literal("Image not found: " + in.toAbsolutePath()));
-                return 0;
-            }
-
             source.sendFeedback(Text.literal("Converting " + filename + "..."));
-            ImageConverter.Result result = ImageConverter.convert(in, width, depth);
-            String clean = filename.replaceAll("\\.[^.]+$", "").replaceAll("[^A-Za-z0-9_-]", "_");
-            Path out = OUTPUT.resolve(clean + "-" + result.width() + "x" + result.height() + ".schem");
-            SchemWriter.write(out, result, clean);
-
-            source.sendFeedback(Text.literal("Done: " + result.width() + "x" + result.height() + "x" + result.length()));
-            source.sendFeedback(Text.literal("Saved .schem: " + out.toAbsolutePath()));
+            GenerationResult result = generateFile(filename, width, depth);
+            source.sendFeedback(Text.literal("Done: " + result.width() + "x" + result.height() + "x" + result.depth()));
+            source.sendFeedback(Text.literal("Saved .schem: " + result.output().toAbsolutePath()));
             return 1;
         } catch (Exception e) {
             source.sendError(Text.literal("Image2Schem failed: " + e.getMessage()));
@@ -84,4 +113,6 @@ public final class Image2SchemClient implements ClientModInitializer {
             return 0;
         }
     }
+
+    record GenerationResult(Path output, int width, int height, int depth) {}
 }
