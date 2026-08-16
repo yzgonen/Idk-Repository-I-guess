@@ -4,6 +4,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.text.Text;
 
@@ -25,29 +26,41 @@ public final class Image2SchemClient implements ClientModInitializer {
             Files.createDirectories(OUTPUT);
         } catch (Exception ignored) {}
 
-        ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) -> dispatcher.register(
-                literal("image2schem")
-                        .then(literal("where")
-                                .executes(ctx -> {
-                                    ctx.getSource().sendFeedback(Text.literal("Image2Schem input folder: " + INPUT.toAbsolutePath()));
-                                    return 1;
-                                }))
-                        .then(literal("generate")
-                                .then(argument("filename", StringArgumentType.word())
-                                        .then(argument("width", IntegerArgumentType.integer(8, 256))
-                                                .executes(ctx -> generate(ctx.getSource(),
-                                                        StringArgumentType.getString(ctx, "filename"),
-                                                        IntegerArgumentType.getInteger(ctx, "width"), 4))
-                                                .then(argument("depth", IntegerArgumentType.integer(1, 8))
-                                                        .executes(ctx -> generate(ctx.getSource(),
-                                                                StringArgumentType.getString(ctx, "filename"),
-                                                                IntegerArgumentType.getInteger(ctx, "width"),
-                                                                IntegerArgumentType.getInteger(ctx, "depth"))))))))
-        ));
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) -> {
+            var root = literal("image2schem");
+
+            root.then(literal("where").executes(ctx -> {
+                ctx.getSource().sendFeedback(Text.literal("Image2Schem input folder: " + INPUT.toAbsolutePath()));
+                return 1;
+            }));
+
+            var generate = literal("generate");
+            var file = argument("filename", StringArgumentType.word());
+            var width = argument("width", IntegerArgumentType.integer(8, 256));
+            width.executes(ctx -> generate(
+                    ctx.getSource(),
+                    StringArgumentType.getString(ctx, "filename"),
+                    IntegerArgumentType.getInteger(ctx, "width"),
+                    4
+            ));
+
+            var depth = argument("depth", IntegerArgumentType.integer(1, 8));
+            depth.executes(ctx -> generate(
+                    ctx.getSource(),
+                    StringArgumentType.getString(ctx, "filename"),
+                    IntegerArgumentType.getInteger(ctx, "width"),
+                    IntegerArgumentType.getInteger(ctx, "depth")
+            ));
+
+            width.then(depth);
+            file.then(width);
+            generate.then(file);
+            root.then(generate);
+            dispatcher.register(root);
+        });
     }
 
-    private static int generate(net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source,
-                                String filename, int width, int depth) {
+    private static int generate(FabricClientCommandSource source, String filename, int width, int depth) {
         try {
             Path in = INPUT.resolve(filename).normalize();
             if (!in.startsWith(INPUT)) throw new IllegalArgumentException("Invalid filename");
