@@ -39,18 +39,12 @@ public final class Image2SchemScreen extends Screen {
         int left = center - panelWidth / 2;
         int buttonGap = 8;
         int buttonW = (panelWidth - buttonGap * 2) / 3;
-
-        addDrawableChild(ButtonWidget.builder(Text.literal("Choose PNG / JPG"), b -> chooseImage())
-                .dimensions(left, 42, buttonW, 20).build());
-        generateButton = addDrawableChild(ButtonWidget.builder(Text.literal("Generate 3D Build"), b -> startGenerate())
-                .dimensions(left + buttonW + buttonGap, 42, buttonW, 20).build());
-        downloadButton = addDrawableChild(ButtonWidget.builder(Text.literal("Download Schematic"), b -> downloadSchematic())
-                .dimensions(left + (buttonW + buttonGap) * 2, 42, buttonW, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("Choose PNG / JPG"), b -> chooseImage()).dimensions(left, 42, buttonW, 20).build());
+        generateButton = addDrawableChild(ButtonWidget.builder(Text.literal("Generate 3D Build"), b -> startGenerate()).dimensions(left + buttonW + buttonGap, 42, buttonW, 20).build());
+        downloadButton = addDrawableChild(ButtonWidget.builder(Text.literal("Download Schematic"), b -> downloadSchematic()).dimensions(left + (buttonW + buttonGap) * 2, 42, buttonW, 20).build());
         generateButton.active = selectedImage != null && !generating;
         downloadButton.active = generated != null && !generating;
-
-        addDrawableChild(ButtonWidget.builder(Text.literal("Close"), b -> close())
-                .dimensions(center - 100, height - 30, 200, 20).build());
+        addDrawableChild(ButtonWidget.builder(Text.literal("Close"), b -> close()).dimensions(center - 100, height - 30, 200, 20).build());
         installDropCallback();
     }
 
@@ -88,9 +82,7 @@ public final class Image2SchemScreen extends Screen {
                 dialog.dispose();
             } catch (Throwable e) {
                 MinecraftClient.getInstance().execute(() -> status = "Picker failed - drag/drop still works: " + safeMessage(e));
-            } finally {
-                if (owner != null) owner.dispose();
-            }
+            } finally { if (owner != null) owner.dispose(); }
         }, "Image2Schem-NativePicker");
         t.setDaemon(true);
         t.start();
@@ -99,8 +91,7 @@ public final class Image2SchemScreen extends Screen {
     private void selectImage(Path path) {
         try {
             String lower = path.getFileName().toString().toLowerCase();
-            if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")))
-                throw new IllegalArgumentException("Choose a PNG, JPG or JPEG file.");
+            if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg"))) throw new IllegalArgumentException("Choose a PNG, JPG or JPEG file.");
             if (!Files.isRegularFile(path)) throw new IllegalArgumentException("That file cannot be read.");
             BufferedImage image = ImageIO.read(path.toFile());
             if (image == null) throw new IllegalArgumentException("Unsupported image file.");
@@ -120,7 +111,7 @@ public final class Image2SchemScreen extends Screen {
         generating = true;
         generated = null;
         progress = 0;
-        status = "Preparing image... 0%";
+        status = "Analyzing image";
         generateButton.active = false;
         downloadButton.active = false;
         Path image = selectedImage;
@@ -130,13 +121,13 @@ public final class Image2SchemScreen extends Screen {
                 Image2SchemClient.GenerationResult result = Image2SchemClient.generatePath(image, size.width(), size.depth(), p -> {
                     int next = Math.max(0, Math.min(100, p));
                     progress = next;
-                    status = next < 15 ? "Preparing image... " + next + "%" : next < 92 ? "Converting pixels to blocks... " + next + "%" : next < 100 ? "Writing schematic... " + next + "%" : "Complete - 100%";
+                    status = stageFor(next);
                 });
                 MinecraftClient.getInstance().execute(() -> {
                     generated = result;
                     generating = false;
                     progress = 100;
-                    status = "Complete - " + result.width() + " x " + result.height() + " x " + result.depth() + " blocks. Click Download Schematic.";
+                    status = "FINISHED - refined and validated. Click Download Schematic.";
                     generateButton.active = true;
                     downloadButton.active = true;
                 });
@@ -153,14 +144,29 @@ public final class Image2SchemScreen extends Screen {
         worker.start();
     }
 
+    private static String stageFor(int p) {
+        if (p < 8) return "Loading and scaling reference";
+        if (p < 20) return "Analyzing edges and background";
+        if (p < 31) return "Cleaning structure and detecting entrance";
+        if (p < 46) return "Reconstructing facade";
+        if (p < 64) return "Building interior shell and depth";
+        if (p < 73) return "Creating corridor and structural columns";
+        if (p < 80) return "Checking rear structure";
+        if (p < 86) return "Refinement pass 1 - removing noise";
+        if (p < 91) return "Refinement pass 2 - reinforcing architecture";
+        if (p < 96) return "Refinement pass 3 - carving walkable spaces";
+        if (p < 99) return "Refinement pass 4 - removing spikes";
+        if (p < 100) return "Final structural validation";
+        return "FINISHED";
+    }
+
     private void downloadSchematic() {
         if (generated == null) return;
         try {
             Path downloads = Path.of(System.getProperty("user.home"), "Downloads");
             Files.createDirectories(downloads);
             Path source = generated.output();
-            String base = source.getFileName().toString();
-            Path target = uniquePath(downloads, base);
+            Path target = uniquePath(downloads, source.getFileName().toString());
             Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
             status = "Downloaded: " + target.getFileName() + " -> Downloads folder";
             net.minecraft.util.Util.getOperatingSystem().open(downloads);
@@ -205,15 +211,14 @@ public final class Image2SchemScreen extends Screen {
             context.drawCenteredTextWithShadow(textRenderer, Text.literal("Calculated: " + suggestion.width() + " x " + suggestion.height() + " x " + suggestion.depth()), rightBox + boxWidth / 2, previewTop + previewHeight / 2 - 6, 0xD0D0D0);
             context.drawCenteredTextWithShadow(textRenderer, Text.literal("Press Generate 3D Build"), rightBox + boxWidth / 2, previewTop + previewHeight / 2 + 10, 0x909090);
         }
-        int barY = height - 82;
-        int barW = panelWidth;
-        context.fill(left, barY, left + barW, barY + 16, 0xFF202020);
-        context.fill(left + 1, barY + 1, left + barW - 1, barY + 15, 0xFF303030);
-        int innerW = barW - 2;
-        int fill = Math.round(innerW * (progress / 100F));
-        if (fill > 0) context.fill(left + 1, barY + 1, left + 1 + fill, barY + 15, 0xFF7FB238);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(progress + "%"), center, barY + 4, 0xFFFFFF);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(status), center, barY + 21, 0xD0D0D0);
+
+        int lineY = height - 79;
+        String percentLine = generating ? String.format("%3d%%  -  %s", progress, status) : (progress == 100 ? "100%  -  FINISHED" : String.format("%3d%%  -  %s", progress, status));
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal(percentLine), center, lineY, progress == 100 ? 0x55FF55 : 0xFFFFFF);
+        context.fill(left, lineY + 15, left + panelWidth, lineY + 16, 0xFF606060);
+        if (!generating && progress == 100) {
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal("Refinement complete - schematic is ready to download"), center, lineY + 21, 0xB0B0B0);
+        }
     }
 
     private void drawPanel(DrawContext c, int x, int y, int w, int h, String label) {
