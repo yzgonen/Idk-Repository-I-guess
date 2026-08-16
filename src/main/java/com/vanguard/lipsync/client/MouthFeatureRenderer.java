@@ -15,12 +15,10 @@ import net.minecraft.util.Identifier;
 import java.util.UUID;
 
 /**
- * Speech deformation made from the player's OWN skin pixels.
- *
- * Instead of painting a generic mouth over every skin, this renderer re-samples
- * the lower front face of the active player skin and moves/scales those strips.
- * Beards, masks, custom mouths and skin colors therefore remain part of the
- * animation. When speech ends no extra face layer is rendered at all.
+ * Subtle speech deformation using only the player's own skin pixels.
+ * The mouth never scales like rubber. Instead, fixed-size skin strips shift
+ * slightly to suggest jaw opening, lip compression, wide vowels and rounded
+ * vowels while keeping the original Minecraft face shape intact.
  */
 public final class MouthFeatureRenderer extends FeatureRenderer<PlayerEntityRenderState, PlayerEntityModel> {
     private static final float PX = 1.0F / 16.0F;
@@ -47,52 +45,64 @@ public final class MouthFeatureRenderer extends FeatureRenderer<PlayerEntityRend
         float round = frame.round();
         float press = frame.press();
 
-        // Minecraft head front is skin pixels x=8..16, y=8..16.
-        // We animate only the lower center of that face so eyes/hair stay untouched.
-        float width = 4.4F + wide * 1.65F - round * 0.85F;
-        width = clamp(width, 3.1F, 6.2F);
-        float left = -width * 0.5F;
-        float right = width * 0.5F;
+        // Keep the mouth's actual width fixed. Only tiny position offsets change.
+        // Quantizing the jaw movement prevents the old smooth "expanding rubber"
+        // look and makes it read like Minecraft pixel animation.
+        float jawPx = snap(open * (0.58F - press * 0.18F), 0.125F);
+        float lowerJawPx = snap(open * 0.28F, 0.125F);
 
-        // Vertical jaw travel. Lip-closure transitions intentionally reduce it.
-        float jaw = open * (1.34F - press * 0.36F);
-        float roundNudge = round * 0.26F;
+        // Wide vowels pull the two mouth halves apart by at most 1/4 pixel.
+        // Rounded vowels push them inward by at most 1/4 pixel. No stretching.
+        float cornerShiftPx = snap((wide - round) * 0.24F, 0.125F);
+        float leftShift = -cornerShiftPx;
+        float rightShift = cornerShiftPx;
 
         matrices.push();
         getContextModel().getHead().applyTransform(matrices);
 
-        // Upper lip / moustache strip: preserve skin pixels but allow width change.
+        // Upper mouth row: nearly anchored to preserve moustaches, masks and the
+        // original mouth line from the skin.
         texturedRect(queue, matrices, layer, light,
-                left * PX, -2.05F * PX,
-                right * PX, -1.20F * PX + jaw * 0.10F * PX,
+                -2.0F * PX, -1.98F * PX,
+                 2.0F * PX, -1.10F * PX,
                 FACE_Z,
-                9F / 64F, 13F / 64F,
-                15F / 64F, 14F / 64F);
+                10F / 64F, 13F / 64F,
+                14F / 64F, 14F / 64F);
 
-        // Main mouth/chin strip moves down with jaw opening. This is the key part:
-        // it is literally the player's own skin texture, not our own mouth art.
-        float topY = (-1.20F + jaw * 0.08F) * PX;
-        float bottomY = (0.35F + jaw + roundNudge) * PX;
+        // Lower-left and lower-right halves shift as rigid pixel blocks rather
+        // than scaling. This is what gives a speech shape without ballooning.
+        float top = (-1.08F + jawPx * 0.18F) * PX;
+        float bottom = (0.02F + jawPx) * PX;
+
         texturedRect(queue, matrices, layer, light,
-                left * PX, topY,
-                right * PX, bottomY,
+                (-2.0F + leftShift) * PX, top,
+                (0.0F + leftShift) * PX, bottom,
                 FACE_Z - 0.00012F,
-                9F / 64F, 14F / 64F,
-                15F / 64F, 16F / 64F);
+                10F / 64F, 14F / 64F,
+                12F / 64F, 16F / 64F);
 
-        // Lower jaw continuation uses the skin's bottom face rows, giving beards
-        // and masks a more physical down-and-back motion while speaking.
-        if (jaw > 0.08F) {
-            float lowerWidth = width * (0.95F - round * 0.08F);
+        texturedRect(queue, matrices, layer, light,
+                (0.0F + rightShift) * PX, top,
+                (2.0F + rightShift) * PX, bottom,
+                FACE_Z - 0.00012F,
+                12F / 64F, 14F / 64F,
+                14F / 64F, 16F / 64F);
+
+        // Tiny chin/jaw continuation. It only translates down; it never grows.
+        if (lowerJawPx > 0F) {
             texturedRect(queue, matrices, layer, light,
-                    -lowerWidth * 0.5F * PX, bottomY - 0.04F * PX,
-                    lowerWidth * 0.5F * PX, bottomY + (0.48F + jaw * 0.22F) * PX,
+                    -1.5F * PX, (0.02F + jawPx) * PX,
+                     1.5F * PX, (0.52F + jawPx + lowerJawPx) * PX,
                     FACE_Z - 0.00018F,
-                    9F / 64F, 15F / 64F,
-                    15F / 64F, 16F / 64F);
+                    10.5F / 64F, 15.5F / 64F,
+                    13.5F / 64F, 16F / 64F);
         }
 
         matrices.pop();
+    }
+
+    private static float snap(float value, float step) {
+        return Math.round(value / step) * step;
     }
 
     private static void texturedRect(OrderedRenderCommandQueue queue, MatrixStack matrices,
@@ -115,9 +125,5 @@ public final class MouthFeatureRenderer extends FeatureRenderer<PlayerEntityRend
                 .overlay(OverlayTexture.DEFAULT_UV)
                 .light(light)
                 .normal(entry, 0F, 0F, -1F);
-    }
-
-    private static float clamp(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
     }
 }
