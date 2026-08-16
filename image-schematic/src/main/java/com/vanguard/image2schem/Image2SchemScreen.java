@@ -4,6 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
 import org.lwjgl.glfw.GLFWDropCallback;
@@ -28,6 +29,7 @@ public final class Image2SchemScreen extends Screen {
     private String status = "Choose or drop a PNG/JPG to begin.";
     private ButtonWidget generateButton;
     private ButtonWidget downloadButton;
+    private TextFieldWidget groqKeyField;
     private GLFWDropCallback previousDrop;
     private GLFWDropCallback dropCallback;
 
@@ -42,10 +44,37 @@ public final class Image2SchemScreen extends Screen {
         addDrawableChild(ButtonWidget.builder(Text.literal("Choose PNG / JPG"), b -> chooseImage()).dimensions(left, 42, buttonW, 20).build());
         generateButton = addDrawableChild(ButtonWidget.builder(Text.literal("Generate 3D Build"), b -> startGenerate()).dimensions(left + buttonW + buttonGap, 42, buttonW, 20).build());
         downloadButton = addDrawableChild(ButtonWidget.builder(Text.literal("Download Schematic"), b -> downloadSchematic()).dimensions(left + (buttonW + buttonGap) * 2, 42, buttonW, 20).build());
+
+        int keyButtonW = 92;
+        groqKeyField = addDrawableChild(new TextFieldWidget(textRenderer, left, 72, panelWidth - keyButtonW - 8, 20, Text.literal("Groq API Key")));
+        groqKeyField.setMaxLength(256);
+        groqKeyField.setText(GroqKeyStore.load());
+        groqKeyField.setPlaceholder(Text.literal("Paste Groq API key here (gsk_...)"));
+        addDrawableChild(ButtonWidget.builder(Text.literal("Save Key"), b -> saveGroqKey()).dimensions(left + panelWidth - keyButtonW, 72, keyButtonW, 20).build());
+
         generateButton.active = selectedImage != null && !generating;
         downloadButton.active = generated != null && !generating;
         addDrawableChild(ButtonWidget.builder(Text.literal("Close"), b -> close()).dimensions(center - 100, height - 30, 200, 20).build());
         installDropCallback();
+    }
+
+    private void saveGroqKey() {
+        try {
+            String key = groqKeyField == null ? "" : groqKeyField.getText().trim();
+            if (key.isEmpty()) {
+                GroqKeyStore.save("");
+                status = "Groq API key cleared.";
+                return;
+            }
+            if (!key.startsWith("gsk_")) {
+                status = "Groq key looks unusual. Expected it to begin with gsk_.";
+                return;
+            }
+            GroqKeyStore.save(key);
+            status = "Groq API key saved locally. It is not uploaded to GitHub.";
+        } catch (Exception e) {
+            status = "Could not save Groq key: " + safeMessage(e);
+        }
     }
 
     private void installDropCallback() {
@@ -193,8 +222,9 @@ public final class Image2SchemScreen extends Screen {
         int left = center - panelWidth / 2;
         context.drawCenteredTextWithShadow(textRenderer, title, center, 14, 0xFFFFFF);
         context.drawCenteredTextWithShadow(textRenderer, Text.literal("Choose an image or drag it onto Minecraft"), center, 27, 0xB0B0B0);
-        int previewTop = 76;
-        int previewHeight = Math.max(100, height - 190);
+        context.drawTextWithShadow(textRenderer, Text.literal("Groq API Key (saved only on this PC)"), left, 63, 0xB0B0B0);
+        int previewTop = 106;
+        int previewHeight = Math.max(100, height - 220);
         int gap = 12;
         int boxWidth = (panelWidth - gap) / 2;
         int rightBox = left + boxWidth + gap;
