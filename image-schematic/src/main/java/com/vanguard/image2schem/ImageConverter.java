@@ -18,8 +18,6 @@ public final class ImageConverter {
         if (src == null) throw new IOException("Unsupported or unreadable image: " + imagePath.getFileName());
         int sw = src.getWidth();
         int sh = src.getHeight();
-
-        // Keep the local model light enough for normal gaming PCs while retaining useful detail.
         int targetWidth = 96;
         if (sw < 512) targetWidth = 72;
         float ratio = targetWidth / (float) sw;
@@ -29,8 +27,6 @@ public final class ImageConverter {
             targetHeight = 112;
             targetWidth = Math.max(48, Math.round(targetWidth * down));
         }
-
-        // Buildings need real interior depth, not 3-6 blocks of relief.
         int depth = Math.max(20, Math.min(40, Math.round(targetWidth * 0.32F)));
         return new Suggestion(targetWidth, targetHeight, depth, sw, sh);
     }
@@ -40,6 +36,6 @@ public final class ImageConverter {
     }
 
     public static Result convert(Path imagePath, int targetWidth, int maxDepth, IntConsumer progress) throws IOException {
-        return LocalBuildingAI.reconstruct(imagePath, targetWidth, maxDepth, progress);
+        return NeuralBuildingAI.reconstruct(imagePath, targetWidth, maxDepth, progress);
     }
 }
