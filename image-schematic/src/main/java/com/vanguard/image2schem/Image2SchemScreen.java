@@ -34,7 +34,7 @@ public final class Image2SchemScreen extends Screen {
     private GLFWDropCallback previousDrop;
     private GLFWDropCallback dropCallback;
 
-    public Image2SchemScreen() { super(Text.literal("Image2Schem Builder")); }
+    public Image2SchemScreen() { super(Text.literal("Image2Schem - Generic 3D Builder")); }
 
     @Override protected void init() {
         int center = width / 2;
@@ -54,7 +54,7 @@ public final class Image2SchemScreen extends Screen {
         groqKeyField = addDrawableChild(new TextFieldWidget(textRenderer, left, 72,
                 panelWidth - keyButtonW - 8, 20, Text.literal("Groq API Key")));
         groqKeyField.setMaxLength(256);
-        groqKeyField.setText(""); // Never display a saved secret back on screen.
+        groqKeyField.setText("");
         groqKeyField.setPlaceholder(Text.literal(GroqKeyStore.hasKey()
                 ? "Groq key saved - paste a new key only if you want to replace it"
                 : "Paste Groq API key here (gsk_...)"));
@@ -166,7 +166,7 @@ public final class Image2SchemScreen extends Screen {
             suggestion = ImageConverter.suggest(path);
             generated = null;
             progress = 0;
-            status = "Ready - calculated build: " + suggestion.width() + " x " + suggestion.height() + " x " + suggestion.depth() + " blocks";
+            status = "Ready - reference loaded. Final dimensions will be inferred from the scene.";
             generateButton.active = true;
             downloadButton.active = false;
         } catch (Exception e) {
@@ -177,12 +177,11 @@ public final class Image2SchemScreen extends Screen {
     private void startGenerate() {
         if (selectedImage == null || suggestion == null || generating) return;
         if (!ensureGroqKeySaved()) return;
-
         generating = true;
         generated = null;
         progress = 1;
         generationStartedAt = System.currentTimeMillis();
-        status = "Starting Groq + local Depth AI...";
+        status = "Starting generic scene analysis + local Depth AI...";
         generateButton.active = false;
         downloadButton.active = false;
 
@@ -217,14 +216,14 @@ public final class Image2SchemScreen extends Screen {
     }
 
     private static String stageFor(int p) {
-        if (p < 5) return "Preparing image...";
-        if (p < 46) return "Groq is reading the architecture while Depth AI runs locally...";
-        if (p < 51) return "Combining Groq plan + neural depth...";
-        if (p < 70) return "Building clean walls, entrance and structural primitives...";
-        if (p < 83) return "Building ramp, floor and major structures...";
-        if (p < 91) return "Reconstructing interior depth...";
-        if (p < 96) return "Applying Minecraft materials and details...";
-        if (p < 100) return "Final structural cleanup...";
+        if (p < 5) return "Preparing reference image...";
+        if (p < 46) return "Groq is decomposing the scene while Depth AI runs locally...";
+        if (p < 51) return "Fusing scene graph with depth evidence...";
+        if (p < 70) return "Placing generic 3D structural primitives...";
+        if (p < 83) return "Constructing detected floors, roofs, stairs, ramps, arches and objects...";
+        if (p < 91) return "Resolving depth relationships and repeated structures...";
+        if (p < 96) return "Applying detected Minecraft materials...";
+        if (p < 100) return "Carving detected openings and cleaning geometry...";
         return "FINISHED";
     }
 
@@ -258,25 +257,20 @@ public final class Image2SchemScreen extends Screen {
     @Override public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
         context.fill(0, 0, width, height, 0xCC101010);
         super.render(context, mouseX, mouseY, deltaTicks);
-
         int center = width / 2;
         int panelWidth = Math.min(900, width - 48);
         int left = center - panelWidth / 2;
         context.drawCenteredTextWithShadow(textRenderer, title, center, 14, 0xFFFFFF);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal("Choose an image, then Generate. Groq plans it; your PC builds it."), center, 27, 0xB0B0B0);
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal("Any scene: Groq identifies objects; the local engine builds only what was detected."), center, 27, 0xB0B0B0);
 
         String keyState = GroqKeyStore.hasKey() ? "Groq key: SAVED (hidden)" : "Groq key: NOT SAVED";
         context.drawTextWithShadow(textRenderer, Text.literal(keyState), left, 96, GroqKeyStore.hasKey() ? 0x55FF55 : 0xFF7777);
-
         String liveStatus;
         if (generating) {
             long elapsed = Math.max(0, (System.currentTimeMillis() - generationStartedAt) / 1000L);
             liveStatus = progress + "%  |  " + status + "  |  " + elapsed + "s";
-        } else {
-            liveStatus = progress == 100 ? "100%  |  FINISHED" : status;
-        }
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(liveStatus), center, 108,
-                progress == 100 ? 0x55FF55 : 0xFFFFFF);
+        } else liveStatus = progress == 100 ? "100%  |  FINISHED" : status;
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal(liveStatus), center, 108, progress == 100 ? 0x55FF55 : 0xFFFFFF);
 
         int previewTop = 126;
         int previewHeight = Math.max(100, height - 220);
@@ -288,24 +282,15 @@ public final class Image2SchemScreen extends Screen {
 
         if (selectedPreview != null) {
             drawFlatPreview(context, selectedPreview, left + 8, previewTop + 24, boxWidth - 16, previewHeight - 50);
-            context.drawCenteredTextWithShadow(textRenderer,
-                    Text.literal(selectedImage.getFileName() + " | " + selectedPreview.getWidth() + "x" + selectedPreview.getHeight() + " px"),
-                    left + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
-        } else {
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal("No image selected"), left + boxWidth / 2, previewTop + previewHeight / 2, 0x909090);
-        }
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal(selectedImage.getFileName() + " | " + selectedPreview.getWidth() + "x" + selectedPreview.getHeight() + " px"), left + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
+        } else context.drawCenteredTextWithShadow(textRenderer, Text.literal("No image selected"), left + boxWidth / 2, previewTop + previewHeight / 2, 0x909090);
 
         if (generated != null) {
             draw3dPreview(context, generated.model(), rightBox + 8, previewTop + 24, boxWidth - 16, previewHeight - 50);
-            context.drawCenteredTextWithShadow(textRenderer,
-                    Text.literal(generated.width() + " x " + generated.height() + " x " + generated.depth() + " blocks"),
-                    rightBox + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal(generated.width() + " x " + generated.height() + " x " + generated.depth() + " blocks"), rightBox + boxWidth / 2, previewTop + previewHeight - 18, 0xD0D0D0);
         } else if (suggestion != null) {
-            context.drawCenteredTextWithShadow(textRenderer,
-                    Text.literal("Calculated: " + suggestion.width() + " x " + suggestion.height() + " x " + suggestion.depth()),
-                    rightBox + boxWidth / 2, previewTop + previewHeight / 2 - 6, 0xD0D0D0);
-            context.drawCenteredTextWithShadow(textRenderer, Text.literal(generating ? "AI is working..." : "Press Generate 3D Build"),
-                    rightBox + boxWidth / 2, previewTop + previewHeight / 2 + 10, generating ? 0xFFFF55 : 0x909090);
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal("Scene dimensions will be inferred during generation"), rightBox + boxWidth / 2, previewTop + previewHeight / 2 - 6, 0xD0D0D0);
+            context.drawCenteredTextWithShadow(textRenderer, Text.literal(generating ? "AI is working..." : "Press Generate 3D Build"), rightBox + boxWidth / 2, previewTop + previewHeight / 2 + 10, generating ? 0xFFFF55 : 0x909090);
         }
 
         int lineY = height - 52;
@@ -360,20 +345,15 @@ public final class Image2SchemScreen extends Screen {
         }
     }
 
-    private static String safeMessage(Throwable e) {
-        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-    }
+    private static String safeMessage(Throwable e) { return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
 
     @Override public void removed() {
         if (client != null && dropCallback != null) {
             long window = client.getWindow().getHandle();
             GLFW.glfwSetDropCallback(window, previousDrop);
-            dropCallback.free();
-            dropCallback = null;
-            previousDrop = null;
+            dropCallback.free(); dropCallback = null; previousDrop = null;
         }
         super.removed();
     }
-
     @Override public boolean shouldPause() { return false; }
 }
