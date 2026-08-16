@@ -15,6 +15,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.IntConsumer;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
@@ -40,15 +41,12 @@ public final class Image2SchemClient implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (OPEN_MENU.wasPressed()) {
-                if (client.currentScreen == null) {
-                    client.setScreen(new Image2SchemScreen());
-                }
+                if (client.currentScreen == null) client.setScreen(new Image2SchemScreen());
             }
         });
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) -> {
             var root = literal("image2schem");
-
             root.then(literal("where").executes(ctx -> {
                 ctx.getSource().sendFeedback(Text.literal("Image2Schem input folder: " + INPUT.toAbsolutePath()));
                 return 1;
@@ -57,20 +55,10 @@ public final class Image2SchemClient implements ClientModInitializer {
             var generate = literal("generate");
             var file = argument("filename", StringArgumentType.word());
             var width = argument("width", IntegerArgumentType.integer(8, 256));
-            width.executes(ctx -> generate(
-                    ctx.getSource(),
-                    StringArgumentType.getString(ctx, "filename"),
-                    IntegerArgumentType.getInteger(ctx, "width"),
-                    4
-            ));
+            width.executes(ctx -> generate(ctx.getSource(), StringArgumentType.getString(ctx, "filename"), IntegerArgumentType.getInteger(ctx, "width"), 4));
 
             var depth = argument("depth", IntegerArgumentType.integer(1, 8));
-            depth.executes(ctx -> generate(
-                    ctx.getSource(),
-                    StringArgumentType.getString(ctx, "filename"),
-                    IntegerArgumentType.getInteger(ctx, "width"),
-                    IntegerArgumentType.getInteger(ctx, "depth")
-            ));
+            depth.executes(ctx -> generate(ctx.getSource(), StringArgumentType.getString(ctx, "filename"), IntegerArgumentType.getInteger(ctx, "width"), IntegerArgumentType.getInteger(ctx, "depth")));
 
             width.then(depth);
             file.then(width);
@@ -80,24 +68,30 @@ public final class Image2SchemClient implements ClientModInitializer {
         });
     }
 
-    static Path inputFolder() {
-        return INPUT;
-    }
+    static Path inputFolder() { return INPUT; }
+    static Path outputFolder() { return OUTPUT; }
 
-    static Path outputFolder() {
-        return OUTPUT;
+    static GenerationResult generatePath(Path in, int width, int depth, IntConsumer progress) throws Exception {
+        if (in == null || !Files.isRegularFile(in)) throw new IllegalArgumentException("Choose a PNG or JPG first.");
+        String lower = in.getFileName().toString().toLowerCase();
+        if (!(lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg"))) {
+            throw new IllegalArgumentException("Only PNG, JPG and JPEG files are supported.");
+        }
+
+        ImageConverter.Result result = ImageConverter.convert(in, width, depth, progress);
+        String filename = in.getFileName().toString();
+        String clean = filename.replaceAll("\\.[^.]+$", "").replaceAll("[^A-Za-z0-9_-]", "_");
+        Path out = OUTPUT.resolve(clean + "-" + result.width() + "x" + result.height() + "x" + result.length() + ".schem");
+        progress.accept(94);
+        SchemWriter.write(out, result, clean);
+        progress.accept(100);
+        return new GenerationResult(out, result);
     }
 
     static GenerationResult generateFile(String filename, int width, int depth) throws Exception {
         Path in = INPUT.resolve(filename).normalize();
         if (!in.startsWith(INPUT)) throw new IllegalArgumentException("Invalid filename");
-        if (!Files.exists(in)) throw new IllegalArgumentException("Image not found: " + in.toAbsolutePath());
-
-        ImageConverter.Result result = ImageConverter.convert(in, width, depth);
-        String clean = filename.replaceAll("\\.[^.]+$", "").replaceAll("[^A-Za-z0-9_-]", "_");
-        Path out = OUTPUT.resolve(clean + "-" + result.width() + "x" + result.height() + ".schem");
-        SchemWriter.write(out, result, clean);
-        return new GenerationResult(out, result.width(), result.height(), result.length());
+        return generatePath(in, width, depth, ignored -> {});
     }
 
     private static int generate(FabricClientCommandSource source, String filename, int width, int depth) {
@@ -114,5 +108,9 @@ public final class Image2SchemClient implements ClientModInitializer {
         }
     }
 
-    record GenerationResult(Path output, int width, int height, int depth) {}
+    record GenerationResult(Path output, ImageConverter.Result model) {
+        int width() { return model.width(); }
+        int height() { return model.height(); }
+        int depth() { return model.length(); }
+    }
 }
