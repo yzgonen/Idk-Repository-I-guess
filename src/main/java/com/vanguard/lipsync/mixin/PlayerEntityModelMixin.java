@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** Adds cinematic motion after vanilla has already posed the player. */
+/** Adds restrained, grounded movement after vanilla has posed the player. */
 @Mixin(PlayerEntityModel.class)
 public abstract class PlayerEntityModelMixin {
 
@@ -25,69 +25,67 @@ public abstract class PlayerEntityModelMixin {
         }
 
         if (info.sitting()) {
-            applySit(model, t);
+            applySit(model);
             copyWearLayers(model);
             return;
         }
 
-        if (info.crouching()) applyCrouch(model, t);
-        if (info.sprinting()) applySprint(model, t);
+        if (info.crouching()) applyCrouch(model);
+        if (info.sprinting()) applySprint(model);
         copyWearLayers(model);
     }
 
-    private static void applySprint(PlayerEntityModel m, float t) {
-        float bounce = (float) Math.sin(t * 0.72F);
-        float counter = (float) Math.sin(t * 1.44F);
-        m.body.pitch += 0.20F;
-        m.head.pitch -= 0.09F;
-        m.body.roll += bounce * 0.025F;
-        m.rightArm.pitch *= 1.20F;
-        m.leftArm.pitch *= 1.20F;
-        m.rightLeg.pitch *= 1.16F;
-        m.leftLeg.pitch *= 1.16F;
-        m.rightArm.roll += 0.05F + bounce * 0.035F;
-        m.leftArm.roll -= 0.05F + bounce * 0.035F;
-        m.body.originY += Math.abs(counter) * 0.13F;
+    private static void applySprint(PlayerEntityModel m) {
+        // Small forward drive only. No side roll, bounce, or cartoon arm flare.
+        m.body.pitch += 0.085F;
+        m.head.pitch -= 0.035F;
+        m.rightArm.pitch *= 1.06F;
+        m.leftArm.pitch *= 1.06F;
+        m.rightLeg.pitch *= 1.04F;
+        m.leftLeg.pitch *= 1.04F;
+        m.rightArm.roll += 0.012F;
+        m.leftArm.roll -= 0.012F;
     }
 
-    private static void applyCrouch(PlayerEntityModel m, float t) {
-        float breathe = (float) Math.sin(t * 0.11F) * 0.018F;
-        m.body.pitch += 0.16F + breathe;
-        m.head.pitch -= 0.07F;
-        m.rightLeg.pitch += 0.17F;
-        m.leftLeg.pitch += 0.17F;
-        m.rightArm.pitch -= 0.08F;
-        m.leftArm.pitch -= 0.08F;
-        m.rightArm.roll += 0.035F;
-        m.leftArm.roll -= 0.035F;
+    private static void applyCrouch(PlayerEntityModel m) {
+        // Tight, controlled crouch. Keep limbs close to the body.
+        m.body.pitch += 0.075F;
+        m.head.pitch -= 0.025F;
+        m.rightLeg.pitch += 0.075F;
+        m.leftLeg.pitch += 0.075F;
+        m.rightArm.pitch -= 0.025F;
+        m.leftArm.pitch -= 0.025F;
     }
 
     private static void applyCrawl(PlayerEntityModel m, float t) {
-        float stroke = (float) Math.sin(t * 0.34F);
-        float opposite = (float) Math.sin(t * 0.34F + Math.PI);
-        m.rightArm.pitch = -2.45F + stroke * 0.36F;
-        m.leftArm.pitch = -2.45F + opposite * 0.36F;
-        m.rightArm.roll = 0.12F;
-        m.leftArm.roll = -0.12F;
-        m.rightLeg.pitch = 0.22F + opposite * 0.34F;
-        m.leftLeg.pitch = 0.22F + stroke * 0.34F;
-        m.rightLeg.roll = 0.07F;
-        m.leftLeg.roll = -0.07F;
-        m.head.pitch += 0.10F;
+        // Low military-style crawl: elbows and knees stay tucked in with a
+        // restrained alternating pull instead of swimming-like flailing.
+        float stroke = (float) Math.sin(t * 0.26F) * 0.13F;
+        float opposite = (float) Math.sin(t * 0.26F + Math.PI) * 0.13F;
+
+        m.rightArm.pitch = -2.30F + stroke;
+        m.leftArm.pitch = -2.30F + opposite;
+        m.rightArm.roll = 0.045F;
+        m.leftArm.roll = -0.045F;
+
+        m.rightLeg.pitch = 0.12F + opposite;
+        m.leftLeg.pitch = 0.12F + stroke;
+        m.rightLeg.roll = 0.025F;
+        m.leftLeg.roll = -0.025F;
+        m.head.pitch += 0.045F;
     }
 
-    private static void applySit(PlayerEntityModel m, float t) {
-        float breathe = (float) Math.sin(t * 0.09F) * 0.018F;
-        m.body.pitch += 0.035F + breathe;
-        m.rightLeg.pitch = -1.18F;
-        m.leftLeg.pitch = -1.18F;
-        m.rightLeg.yaw = 0.10F;
-        m.leftLeg.yaw = -0.10F;
-        m.rightArm.pitch = -0.24F;
-        m.leftArm.pitch = -0.24F;
-        m.rightArm.roll = 0.08F;
-        m.leftArm.roll = -0.08F;
-        m.head.pitch -= breathe * 0.6F;
+    private static void applySit(PlayerEntityModel m) {
+        // Stable relaxed seat: no swaying/breathing loop.
+        m.body.pitch += 0.015F;
+        m.rightLeg.pitch = -1.12F;
+        m.leftLeg.pitch = -1.12F;
+        m.rightLeg.yaw = 0.045F;
+        m.leftLeg.yaw = -0.045F;
+        m.rightArm.pitch = -0.12F;
+        m.leftArm.pitch = -0.12F;
+        m.rightArm.roll = 0.025F;
+        m.leftArm.roll = -0.025F;
     }
 
     private static void copyWearLayers(PlayerEntityModel m) {
