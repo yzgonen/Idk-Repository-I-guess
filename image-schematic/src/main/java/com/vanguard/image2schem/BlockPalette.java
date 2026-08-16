@@ -3,7 +3,9 @@ package com.vanguard.image2schem;
 import java.util.List;
 
 public final class BlockPalette {
-    public record Entry(String block, int r, int g, int b) {}
+    public record Entry(String block, int r, int g, int b) {
+        public int argb() { return 0xFF000000 | (r << 16) | (g << 8) | b; }
+    }
 
     public static final List<Entry> DEFAULT = List.of(
             new Entry("minecraft:white_concrete", 207, 213, 214),
@@ -48,5 +50,10 @@ public final class BlockPalette {
             }
         }
         return best;
+    }
+
+    public static int colorFor(String block) {
+        for (Entry e : DEFAULT) if (e.block().equals(block)) return e.argb();
+        return 0xFF777777;
     }
 }
