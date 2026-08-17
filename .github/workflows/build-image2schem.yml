@@ -8,6 +8,10 @@ on:
       - '.github/workflows/build-image2schem.yml'
   workflow_dispatch:
 
+concurrency:
+  group: image2schem-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
