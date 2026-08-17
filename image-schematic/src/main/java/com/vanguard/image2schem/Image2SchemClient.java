@@ -24,6 +24,7 @@ public final class Image2SchemClient implements ClientModInitializer {
     private static final Path ROOT = FabricLoader.getInstance().getConfigDir().resolve("image2schem");
     private static final Path INPUT = ROOT.resolve("input");
     private static final Path OUTPUT = ROOT.resolve("output");
+    private static final int DEFAULT_DEPTH = 44;
 
     private static final KeyBinding OPEN_MENU = KeyBindingHelper.registerKeyBinding(new KeyBinding(
             "key.image2schem.open_menu",
@@ -54,10 +55,11 @@ public final class Image2SchemClient implements ClientModInitializer {
 
             var generate = literal("generate");
             var file = argument("filename", StringArgumentType.word());
-            var width = argument("width", IntegerArgumentType.integer(8, 256));
-            width.executes(ctx -> generate(ctx.getSource(), StringArgumentType.getString(ctx, "filename"), IntegerArgumentType.getInteger(ctx, "width"), 4));
+            // Keep command limits aligned with the generic builder instead of accepting values it silently clamps.
+            var width = argument("width", IntegerArgumentType.integer(64, 176));
+            width.executes(ctx -> generate(ctx.getSource(), StringArgumentType.getString(ctx, "filename"), IntegerArgumentType.getInteger(ctx, "width"), DEFAULT_DEPTH));
 
-            var depth = argument("depth", IntegerArgumentType.integer(1, 8));
+            var depth = argument("depth", IntegerArgumentType.integer(24, 120));
             depth.executes(ctx -> generate(ctx.getSource(), StringArgumentType.getString(ctx, "filename"), IntegerArgumentType.getInteger(ctx, "width"), IntegerArgumentType.getInteger(ctx, "depth")));
 
             width.then(depth);
@@ -82,7 +84,7 @@ public final class Image2SchemClient implements ClientModInitializer {
         String filename = in.getFileName().toString();
         String clean = filename.replaceAll("\\.[^.]+$", "").replaceAll("[^A-Za-z0-9_-]", "_");
         Path out = OUTPUT.resolve(clean + "-" + result.width() + "x" + result.height() + "x" + result.length() + ".schem");
-        progress.accept(94);
+        progress.accept(99);
         SchemWriter.write(out, result, clean);
         progress.accept(100);
         return new GenerationResult(out, result);
