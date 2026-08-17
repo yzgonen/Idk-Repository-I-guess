@@ -8,7 +8,6 @@ import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
@@ -43,10 +42,8 @@ public final class Image2SchemClient implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (OPEN_MENU.wasPressed()) {
-                // K works during gameplay and from the vanilla title screen. Do not steal K while another GUI is open.
-                if (client.currentScreen == null || client.currentScreen instanceof TitleScreen) {
-                    client.setScreen(new Image2SchemScreen());
-                }
+                // Open only when gameplay has no other GUI active; do not steal K from screens or text fields.
+                if (client.currentScreen == null) client.setScreen(new Image2SchemScreen());
             }
         });
 
