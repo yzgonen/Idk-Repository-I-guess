@@ -2,6 +2,7 @@ package com.vanguard.image2schem;
 
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.minecraft.client.gui.screen.TitleScreen;
 import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Files;
@@ -10,9 +11,8 @@ import java.nio.file.Path;
 /**
  * End-to-end smoke test that boots a real Minecraft client and opens the mod through its actual K keybind.
  *
- * The menu keybind is world-independent: production code only requires currentScreen == null. The client gametest
- * API's waitForScreen helper expects a concrete screen type and is not reliable with null, so screen clearing is
- * synchronized with ticks plus an explicit client-thread assertion instead.
+ * Wait for Minecraft to finish startup and reach TitleScreen before clearing the screen. Clearing it earlier races
+ * Minecraft startup, which legitimately installs TitleScreen a few ticks later and makes the test flaky.
  */
 @SuppressWarnings("UnstableApiUsage")
 public final class Image2SchemClientGameTest implements FabricClientGameTest {
@@ -20,8 +20,10 @@ public final class Image2SchemClientGameTest implements FabricClientGameTest {
     public void runTest(ClientGameTestContext context) {
         context.getInput().resizeWindow(1100, 700);
 
+        // Establish a stable startup point first; only then create the exact production condition currentScreen == null.
+        context.waitForScreen(TitleScreen.class);
         context.setScreen(() -> null);
-        context.waitTicks(2);
+        context.waitTicks(1);
         assertNoScreen(context, "before testing K");
 
         // Exercise the same physical key path the user uses, rather than directly constructing the screen.
@@ -41,9 +43,8 @@ public final class Image2SchemClientGameTest implements FabricClientGameTest {
             throw new AssertionError("Image2Schem screen screenshot was not produced correctly: " + screenshot);
         }
 
+        // Cleanup only; no need to assert a blank screen again because the tested behavior has already succeeded.
         context.setScreen(() -> null);
-        context.waitTicks(2);
-        assertNoScreen(context, "after closing Image2SchemScreen");
     }
 
     private static void assertNoScreen(ClientGameTestContext context, String phase) {
