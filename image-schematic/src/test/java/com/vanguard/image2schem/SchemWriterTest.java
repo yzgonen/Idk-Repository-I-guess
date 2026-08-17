@@ -40,7 +40,9 @@ final class SchemWriterTest {
         assertEquals((short)w, schematic.get("Width"));
         assertEquals((short)h, schematic.get("Height"));
         assertEquals((short)d, schematic.get("Length"));
-        assertTrue(schematic.containsKey("DataVersion"));
+        assertInstanceOf(Integer.class,schematic.get("DataVersion"));
+        assertTrue((Integer)schematic.get("DataVersion") > 0, "DataVersion must identify the actual Minecraft data format");
+        assertEquals(SchemWriter.currentDataVersion(), schematic.get("DataVersion"));
 
         Map<String,Object> metadata=compound(schematic,"Metadata");
         assertEquals("QA Scene", metadata.get("Name"));
@@ -54,6 +56,28 @@ final class SchemWriterTest {
         assertNotNull(data);
         assertEquals(ids.length, decodeVarIntCount(data));
         assertTrue(blocks.containsKey("BlockEntities"));
+    }
+
+    @Test
+    void refusesCorruptBlockArraysInsteadOfWritingBrokenSchematics() {
+        Map<String,Integer> palette = new LinkedHashMap<>();
+        palette.put("minecraft:air",0);
+        palette.put("minecraft:stone_bricks",1);
+        ImageConverter.Result wrongLength = new ImageConverter.Result(4,4,4,new int[5],palette);
+        IOException e=assertThrows(IOException.class,()->SchemWriter.write(temp.resolve("bad.schem"),wrongLength,"bad"));
+        assertTrue(e.getMessage().contains("Block array"));
+        assertFalse(Files.exists(temp.resolve("bad.schem")));
+    }
+
+    @Test
+    void refusesOutOfRangePaletteIds() {
+        Map<String,Integer> palette = new LinkedHashMap<>();
+        palette.put("minecraft:air",0);
+        palette.put("minecraft:stone_bricks",1);
+        int[] ids=new int[8]; ids[3]=9;
+        ImageConverter.Result badId=new ImageConverter.Result(2,2,2,ids,palette);
+        IOException e=assertThrows(IOException.class,()->SchemWriter.write(temp.resolve("bad-id.schem"),badId,"bad"));
+        assertTrue(e.getMessage().contains("palette id"));
     }
 
     private static Map<String,Object> readRoot(Path file)throws IOException{
