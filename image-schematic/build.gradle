@@ -21,6 +21,18 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
 }
 
+fabricApi {
+    configureTests {
+        createSourceSet = true
+        modId = "image2schem-gametest"
+        enableGameTests = false
+        enableClientGameTests = true
+        eula = true
+        clearRunDirectory = true
+        username = "Image2SchemQA"
+    }
+}
+
 processResources {
     inputs.property 'version', project.version
     filesMatching('fabric.mod.json') { expand 'version': project.version }
