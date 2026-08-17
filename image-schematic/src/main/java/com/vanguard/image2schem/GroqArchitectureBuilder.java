@@ -94,15 +94,21 @@ public final class GroqArchitectureBuilder {
         int y0=clamp(Math.round(q.y0()*(h-1)),0,h-1),y1=clamp(Math.round(q.y1()*(h-1)),y0,h-1);
         int z0=clamp(Math.round(q.z0()*(d-1)),0,d-1),z1=clamp(Math.round(q.z1()*(d-1)),z0,d-1);
 
-        // Depth AI is supporting evidence only: gently shift the object's Z, never reshape it pixel-by-pixel.
+        String type=p.type();
+        // Windows, doors and openings are semantic wall insets/cutouts. Their planned world Z is the
+        // host-plane relationship; image depth can be dominated by glass/background seen through them.
+        // Moving them independently creates floating windows or openings that fail to carve the host wall.
+        boolean hostPlaneInset=Set.of("window","door","opening").contains(type);
+
+        // Depth AI is supporting evidence only: gently shift free-standing objects in Z, never reshape them
+        // pixel-by-pixel and never detach semantic insets from their planned host surface.
         GroqArchitectAI.Rect r=p.imageBox();
-        if(r!=null&&p.confidence()<.92f){
+        if(!hostPlaneInset&&r!=null&&p.confidence()<.92f){
             float md=medianDepth(depth,r);int neural=clamp(Math.round((1f-md)*(d-1)),0,d-1);
             int center=(z0+z1)/2,span=Math.max(1,z1-z0),blended=Math.round(center*.78f+neural*.22f);
             z0=clamp(blended-span/2,0,d-1);z1=clamp(z0+span,z0,d-1);
         }
 
-        String type=p.type();
         if(Set.of("wall","window","door","opening","beam","column","railing","arch").contains(type)&&z1-z0<1)z1=Math.min(d-1,z0+1);
         if(Set.of("floor","roof","slab","platform").contains(type)&&y1-y0<1)y1=Math.min(h-1,y0+1);
         return new Placed(x0,y0,z0,x1,y1,z1);
