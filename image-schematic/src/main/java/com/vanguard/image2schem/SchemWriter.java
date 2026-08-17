@@ -1,5 +1,7 @@
 package com.vanguard.image2schem;
 
+import net.minecraft.SharedConstants;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,7 +22,21 @@ public final class SchemWriter {
     private SchemWriter() {}
 
     public static void write(Path output, ImageConverter.Result result, String name) throws IOException {
-        Files.createDirectories(output.getParent());
+        if (result == null) throw new IOException("Cannot write a null schematic result.");
+        if (result.width() <= 0 || result.height() <= 0 || result.length() <= 0) throw new IOException("Invalid schematic dimensions.");
+        long expected = (long) result.width() * result.height() * result.length();
+        if (result.paletteIds() == null || result.paletteIds().length != expected) throw new IOException("Block array does not match schematic dimensions.");
+        if (result.palette() == null || result.palette().isEmpty() || !Integer.valueOf(0).equals(result.palette().get("minecraft:air"))) {
+            throw new IOException("Schematic palette must contain minecraft:air as id 0.");
+        }
+        for (int id : result.paletteIds()) {
+            if (id < 0 || id >= result.palette().size()) throw new IOException("Invalid block palette id: " + id);
+        }
+
+        Path parent = output.getParent();
+        if (parent != null) Files.createDirectories(parent);
+        int dataVersion = currentDataVersion();
+
         try (DataOutputStream out = new DataOutputStream(new BufferedOutputStream(new GZIPOutputStream(Files.newOutputStream(output))))) {
             out.writeByte(TAG_COMPOUND);
             writeUtf(out, "");
@@ -29,7 +45,7 @@ public final class SchemWriter {
             writeUtf(out, "Schematic");
 
             writeInt(out, "Version", 3);
-            writeInt(out, "DataVersion", 0);
+            writeInt(out, "DataVersion", dataVersion);
             writeShort(out, "Width", result.width());
             writeShort(out, "Height", result.height());
             writeShort(out, "Length", result.length());
@@ -37,7 +53,7 @@ public final class SchemWriter {
 
             out.writeByte(TAG_COMPOUND);
             writeUtf(out, "Metadata");
-            writeString(out, "Name", name);
+            writeString(out, "Name", name == null ? "Image2Schem" : name);
             writeString(out, "Author", "Image2Schem");
             out.writeByte(TAG_END);
 
@@ -64,9 +80,23 @@ public final class SchemWriter {
         }
     }
 
+    static int currentDataVersion() throws IOException {
+        try {
+            try {
+                return SharedConstants.getGameVersion().dataVersion().id();
+            } catch (IllegalStateException first) {
+                SharedConstants.createGameVersion();
+                return SharedConstants.getGameVersion().dataVersion().id();
+            }
+        } catch (Throwable e) {
+            throw new IOException("Could not resolve Minecraft DataVersion for schematic export.", e);
+        }
+    }
+
     private static byte[] encodeVarInts(int[] values) throws IOException {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream(values.length);
         for (int value : values) {
+            if (value < 0) throw new IOException("Negative palette id cannot be encoded: " + value);
             int v = value;
             while ((v & ~0x7F) != 0) {
                 bytes.write((v & 0x7F) | 0x80);
@@ -94,6 +124,7 @@ public final class SchemWriter {
     }
     private static void writeUtf(DataOutputStream out, String value) throws IOException {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > 65535) throw new IOException("NBT string is too long.");
         out.writeShort(bytes.length); out.write(bytes);
     }
 }
