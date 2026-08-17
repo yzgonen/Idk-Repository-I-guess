@@ -16,7 +16,7 @@ public final class Image2SchemClientGameTest implements FabricClientGameTest {
         context.getInput().resizeWindow(1100, 700);
 
         try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
-            singleplayer.getClientLevel().waitForChunksRender();
+            singleplayer.getClientWorld().waitForChunksRender();
 
             context.runOnClient(client -> {
                 if (client.currentScreen != null) {
