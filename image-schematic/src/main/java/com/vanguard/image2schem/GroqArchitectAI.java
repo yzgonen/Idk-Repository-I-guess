@@ -47,7 +47,7 @@ public final class GroqArchitectAI {
         HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(12)).followRedirects(HttpClient.Redirect.NORMAL).build();
         HttpResponse<String> resp;
         try { resp=client.send(req,HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)); }
-        catch(InterruptedException e){Thread.currentThread().interrupt();throw new IOException("Groq request interrupted.",e);} 
+        catch(InterruptedException e){Thread.currentThread().interrupt();throw new IOException("Groq request interrupted.",e);}
         catch(Exception e){throw new IOException("Could not reach Groq: "+safe(e),e);} progress.accept(21);
         if(resp.statusCode()<200||resp.statusCode()>=300) throw new IOException("Groq API error "+resp.statusCode()+": "+safeGroqError(resp.body()));
         try{
@@ -67,7 +67,8 @@ public final class GroqArchitectAI {
         int w=Math.max(1,Math.round(sw*scale)),h=Math.max(1,Math.round(sh*scale));
         BufferedImage rgb=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB); Graphics2D g=rgb.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BILINEAR); g.drawImage(source,0,0,w,h,null); g.dispose();
-        ByteArrayOutputStream out=new ByteArrayOutputStream(); ImageIO.write(rgb,"jpg",out);
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        if(!ImageIO.write(rgb,"jpg",out)) throw new IOException("Could not encode image for Groq vision.");
         return "data:image/jpeg;base64,"+Base64.getEncoder().encodeToString(out.toByteArray());
     }
 
@@ -77,13 +78,18 @@ public final class GroqArchitectAI {
         List<Primitive> objects=new ArrayList<>();
         for(JsonElement e:array(o,"objects")){
             if(!e.isJsonObject())continue; JsonObject q=e.getAsJsonObject();
+            if(!hasObject(q,"image_box")||!hasObject(q,"world_box"))continue;
             String type=str(q,"type","object").toLowerCase(Locale.ROOT); if(!ALLOWED_TYPES.contains(type))type="object";
-            Rect image=rect(obj(q,"image_box"),new Rect(0,0,1,1)); Box world=box(obj(q,"world_box"),new Box(0,0,.4f,1,1,.6f));
+            Rect image=rect(q.getAsJsonObject("image_box"),new Rect(0,0,1,1));
+            Box world=box(q.getAsJsonObject("world_box"),new Box(0,0,.4f,1,1,.6f));
+            if(image.x1()-image.x0()<.005f||image.y1()-image.y0()<.005f)continue;
+            float wx=world.x1()-world.x0(),wy=world.y1()-world.y0(),wz=world.z1()-world.z0();
+            if(Math.max(wx,Math.max(wy,wz))<.005f)continue;
             float conf=clamp01(f(q,"confidence",.5f)); if(conf<.18f)continue;
-            String material=str(q,"minecraft_block","minecraft:stone_bricks"); if(!ALLOWED_BLOCKS.contains(material))material="minecraft:stone_bricks";
+            String material=str(q,"minecraft_block",""); if(!ALLOWED_BLOCKS.contains(material))material="";
             String axis=str(q,"axis","z").toLowerCase(Locale.ROOT); if(!axis.equals("x")&&!axis.equals("y")&&!axis.equals("z"))axis="z";
             int repeats=Math.max(1,Math.min(32,i(q,"repeats",1)));
-            objects.add(new Primitive(type,image.clamped(),world.clamped(),material,axis,bool(q,"hollow",false),repeats,conf));
+            objects.add(new Primitive(type,image,world,material,axis,bool(q,"hollow",false),repeats,conf));
             if(objects.size()>=64)break;
         }
         return new Plan(scene,confidence,p,List.copyOf(objects));
@@ -99,7 +105,8 @@ public final class GroqArchitectAI {
 
     private static Rect rect(JsonObject o,Rect d){return o==null?d:new Rect(f(o,"x0",d.x0),f(o,"y0",d.y0),f(o,"x1",d.x1),f(o,"y1",d.y1)).clamped();}
     private static Box box(JsonObject o,Box d){return o==null?d:new Box(f(o,"x0",d.x0),f(o,"y0",d.y0),f(o,"z0",d.z0),f(o,"x1",d.x1),f(o,"y1",d.y1),f(o,"z1",d.z1)).clamped();}
-    private static JsonObject obj(JsonObject o,String k){return o!=null&&o.has(k)&&o.get(k).isJsonObject()?o.getAsJsonObject(k):new JsonObject();}
+    private static boolean hasObject(JsonObject o,String k){return o!=null&&o.has(k)&&o.get(k).isJsonObject();}
+    private static JsonObject obj(JsonObject o,String k){return hasObject(o,k)?o.getAsJsonObject(k):new JsonObject();}
     private static JsonArray array(JsonObject o,String k){return o!=null&&o.has(k)&&o.get(k).isJsonArray()?o.getAsJsonArray(k):new JsonArray();}
     private static float f(JsonObject o,String k,float d){try{return o!=null&&o.has(k)?o.get(k).getAsFloat():d;}catch(Exception e){return d;}}
     private static int i(JsonObject o,String k,int d){try{return o!=null&&o.has(k)?o.get(k).getAsInt():d;}catch(Exception e){return d;}}
@@ -123,6 +130,7 @@ Return ONLY one valid JSON object. Your job is to decompose the visible scene in
 Coordinate systems:
 - image_box: x/y normalized 0..1 from image top-left.
 - world_box: x=left/right, y=bottom/top, z=near/far from camera, all normalized 0..1 inside the final build volume.
+- Every object MUST include both image_box and world_box. If you cannot place an object confidently, omit it instead of guessing a huge default box.
 - Estimate plausible hidden depth conservatively. If depth is uncertain, keep z thickness small rather than inventing a huge volume.
 
 JSON:
@@ -137,7 +145,7 @@ JSON:
 
 Use 8-40 objects when the scene supports it. Allowed types: wall, floor, roof, slab, column, beam, platform, window, door, opening, stairs, ramp, railing, arch, tower, terrain, detail, object.
 Use opening/door ONLY where a real opening exists. Use stairs/ramp ONLY when actually visible. Never create a default entrance or corridor. No forced symmetry.
-For floors/roofs/platforms, world_box should have small y thickness and meaningful z depth. For walls/windows/openings, use small thickness on the appropriate axis. For columns/towers use real vertical height. For stairs/ramps set axis to the direction of travel (x or z), and world_box spans the full run and rise. Use repeats only for genuinely repeated elements.
+For floors/roofs/platforms, world_box should have small y thickness and meaningful z depth. For walls/windows/openings, use small thickness on the appropriate axis. For columns/towers use real vertical height. For stairs/ramps set axis to the direction of travel (x or z), and world_box spans the full run and rise. For repeated columns/railings, axis is the direction along which repeats are distributed. Use repeats only for genuinely repeated elements.
 Allowed minecraft_block values: minecraft:stone_bricks, minecraft:stone, minecraft:smooth_stone, minecraft:andesite, minecraft:polished_andesite, minecraft:gray_concrete, minecraft:light_gray_concrete, minecraft:black_concrete, minecraft:white_concrete, minecraft:brown_concrete, minecraft:red_concrete, minecraft:orange_concrete, minecraft:yellow_concrete, minecraft:green_concrete, minecraft:blue_concrete, minecraft:deepslate_tiles, minecraft:polished_deepslate, minecraft:polished_blackstone_bricks, minecraft:bricks, minecraft:quartz_block, minecraft:oak_planks, minecraft:spruce_planks, minecraft:dark_oak_planks, minecraft:tinted_glass, minecraft:glass, minecraft:iron_block, minecraft:sea_lantern.
 Prioritize correct large geometry and proportions over decorative detail.
 """;
