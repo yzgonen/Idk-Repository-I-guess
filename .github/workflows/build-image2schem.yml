@@ -29,8 +29,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.1'
-      - name: Build
+      - name: Cache Depth Anything model
+        uses: actions/cache@v4
+        with:
+          path: ~/.image2schem/models
+          key: image2schem-depth-anything-v2-small-v1
+      - name: Build and run generic regression tests
         run: gradle build --stacktrace
+      - name: Real Depth Anything ONNX smoke test
+        env:
+          IMAGE2SCHEM_RUN_MODEL_TEST: '1'
+        run: gradle test --tests com.vanguard.image2schem.NeuralDepthAIIntegrationTest --rerun-tasks --stacktrace
       - name: Upload mod JAR
         if: success()
         uses: actions/upload-artifact@v4
