@@ -17,8 +17,10 @@ final class SlopeDirectionAndDoorTest {
                 new GroqArchitectAI.Box(.35f,.10f,.20f,.65f,.55f,.80f),
                 "minecraft:smooth_stone","z-",false,1,.99f);
         ImageConverter.Result r=build(ramp);
-        int nearMax=maxYAtZ(r,Math.round(r.length()*.20f));
-        int farMax=maxYAtZ(r,Math.round(r.length()*.80f));
+        int nearZ=Math.round((r.length()-1)*.20f);
+        int farZ=Math.round((r.length()-1)*.80f);
+        int nearMax=maxYAtZ(r,nearZ);
+        int farMax=maxYAtZ(r,farZ);
         assertTrue(nearMax>farMax,"z- means the ramp must be higher toward decreasing Z");
     }
 
@@ -28,8 +30,10 @@ final class SlopeDirectionAndDoorTest {
                 new GroqArchitectAI.Box(.35f,.10f,.20f,.65f,.55f,.80f),
                 "minecraft:smooth_stone","z+",false,1,.99f);
         ImageConverter.Result r=build(ramp);
-        int nearMax=maxYAtZ(r,Math.round(r.length()*.20f));
-        int farMax=maxYAtZ(r,Math.round(r.length()*.80f));
+        int nearZ=Math.round((r.length()-1)*.20f);
+        int farZ=Math.round((r.length()-1)*.80f);
+        int nearMax=maxYAtZ(r,nearZ);
+        int farMax=maxYAtZ(r,farZ);
         assertTrue(farMax>nearMax,"z+ means the ramp must be higher toward increasing Z");
     }
 
