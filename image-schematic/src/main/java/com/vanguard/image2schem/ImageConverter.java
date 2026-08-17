@@ -18,16 +18,18 @@ public final class ImageConverter {
         if (src == null) throw new IOException("Unsupported or unreadable image: " + imagePath.getFileName());
         int sw = src.getWidth();
         int sh = src.getHeight();
-        int targetWidth = 96;
-        if (sw < 512) targetWidth = 72;
+        int targetWidth = sw < 512 ? 72 : 96;
         float ratio = targetWidth / (float) sw;
         int targetHeight = Math.max(24, Math.round(sh * ratio));
         if (targetHeight > 112) {
             float down = 112F / targetHeight;
             targetHeight = 112;
-            targetWidth = Math.max(48, Math.round(targetWidth * down));
+            targetWidth = Math.max(64, Math.round(targetWidth * down));
         }
-        int depth = Math.max(20, Math.min(40, Math.round(targetWidth * 0.32F)));
+        // Keep suggestions inside the same public limits used by commands and the generic builder.
+        // This prevents the UI from advertising 48x...x20 and silently producing a clamped 64x...x24 build.
+        targetWidth = Math.max(64, Math.min(176, targetWidth));
+        int depth = Math.max(24, Math.min(120, Math.round(targetWidth * 0.32F)));
         return new Suggestion(targetWidth, targetHeight, depth, sw, sh);
     }
 
