@@ -28,9 +28,10 @@ public final class GroqArchitectAI {
 
         JsonObject body=new JsonObject();
         body.addProperty("model",MODEL);
-        body.addProperty("temperature",0.25);
+        body.addProperty("temperature",0.20);
         body.addProperty("top_p",0.8);
-        body.addProperty("max_completion_tokens",2600);
+        body.addProperty("max_completion_tokens",4200);
+        body.addProperty("reasoning_effort","none");
         body.addProperty("reasoning_format","hidden");
         JsonObject rf=new JsonObject(); rf.addProperty("type","json_object"); body.add("response_format",rf);
 
@@ -87,7 +88,8 @@ public final class GroqArchitectAI {
             if(Math.max(wx,Math.max(wy,wz))<.005f)continue;
             float conf=clamp01(f(q,"confidence",.5f)); if(conf<.18f)continue;
             String material=str(q,"minecraft_block",""); if(!ALLOWED_BLOCKS.contains(material))material="";
-            String axis=str(q,"axis","z").toLowerCase(Locale.ROOT); if(!axis.equals("x")&&!axis.equals("y")&&!axis.equals("z"))axis="z";
+            String axis=str(q,"axis","z+").toLowerCase(Locale.ROOT);
+            if(!ALLOWED_AXES.contains(axis))axis="z+";
             int repeats=Math.max(1,Math.min(32,i(q,"repeats",1)));
             objects.add(new Primitive(type,image,world,material,axis,bool(q,"hollow",false),repeats,conf));
             if(objects.size()>=64)break;
@@ -96,6 +98,7 @@ public final class GroqArchitectAI {
     }
 
     private static final Set<String> ALLOWED_TYPES=Set.of("wall","floor","roof","slab","column","beam","platform","window","door","opening","stairs","ramp","railing","arch","tower","terrain","detail","object");
+    private static final Set<String> ALLOWED_AXES=Set.of("x","y","z","x+","x-","z+","z-");
     private static final Set<String> ALLOWED_BLOCKS=Set.of(
             "minecraft:stone_bricks","minecraft:stone","minecraft:smooth_stone","minecraft:andesite","minecraft:polished_andesite",
             "minecraft:gray_concrete","minecraft:light_gray_concrete","minecraft:black_concrete","minecraft:white_concrete","minecraft:brown_concrete",
@@ -139,13 +142,17 @@ JSON:
  "confidence":0.0,
  "proportions":{"width":1.0,"height":0.7,"depth":0.7},
  "objects":[
-   {"type":"wall","image_box":{"x0":0.1,"y0":0.2,"x1":0.4,"y1":0.8},"world_box":{"x0":0.1,"y0":0.0,"z0":0.35,"x1":0.4,"y1":0.7,"z1":0.39},"minecraft_block":"minecraft:stone_bricks","axis":"z","hollow":false,"repeats":1,"confidence":0.9}
+   {"type":"wall","image_box":{"x0":0.1,"y0":0.2,"x1":0.4,"y1":0.8},"world_box":{"x0":0.1,"y0":0.0,"z0":0.35,"x1":0.4,"y1":0.7,"z1":0.39},"minecraft_block":"minecraft:stone_bricks","axis":"z+","hollow":false,"repeats":1,"confidence":0.9}
  ]
 }
 
 Use 8-40 objects when the scene supports it. Allowed types: wall, floor, roof, slab, column, beam, platform, window, door, opening, stairs, ramp, railing, arch, tower, terrain, detail, object.
-Use opening/door ONLY where a real opening exists. Use stairs/ramp ONLY when actually visible. Never create a default entrance or corridor. No forced symmetry.
-For floors/roofs/platforms, world_box should have small y thickness and meaningful z depth. For walls/windows/openings, use small thickness on the appropriate axis. For columns/towers use real vertical height. For stairs/ramps set axis to the direction of travel (x or z), and world_box spans the full run and rise. For repeated columns/railings, axis is the direction along which repeats are distributed. Use repeats only for genuinely repeated elements.
+- opening means EMPTY passable/open space that must be carved from surrounding geometry.
+- door means a VISIBLE material door/panel. Do not use door for an empty doorway.
+- Use stairs/ramp ONLY when actually visible. Never create a default entrance, corridor, ramp, floor, or symmetry.
+For floors/roofs/platforms, world_box should have small y thickness and meaningful z depth. For walls/windows/openings, use small thickness on the appropriate axis. For columns/towers use real vertical height.
+For stairs/ramps use axis x+, x-, z+, or z-. The sign tells which end is HIGH: x+ rises toward increasing x, x- toward decreasing x, z+ toward increasing z, z- toward decreasing z. world_box spans the full run and rise.
+For repeated columns/railings, axis x or z is the direction along which repeats are distributed. Use repeats only for genuinely repeated elements.
 Allowed minecraft_block values: minecraft:stone_bricks, minecraft:stone, minecraft:smooth_stone, minecraft:andesite, minecraft:polished_andesite, minecraft:gray_concrete, minecraft:light_gray_concrete, minecraft:black_concrete, minecraft:white_concrete, minecraft:brown_concrete, minecraft:red_concrete, minecraft:orange_concrete, minecraft:yellow_concrete, minecraft:green_concrete, minecraft:blue_concrete, minecraft:deepslate_tiles, minecraft:polished_deepslate, minecraft:polished_blackstone_bricks, minecraft:bricks, minecraft:quartz_block, minecraft:oak_planks, minecraft:spruce_planks, minecraft:dark_oak_planks, minecraft:tinted_glass, minecraft:glass, minecraft:iron_block, minecraft:sea_lantern.
 Prioritize correct large geometry and proportions over decorative detail.
 """;
