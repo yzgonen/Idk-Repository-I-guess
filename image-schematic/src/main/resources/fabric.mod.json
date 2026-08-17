@@ -3,7 +3,7 @@
   "id": "image2schem",
   "version": "${version}",
   "name": "Image2Schem",
-  "description": "Convert PNG/JPG images into Minecraft block reliefs and Sponge .schem files in-game.",
+  "description": "Analyze PNG/JPG references into generic Minecraft 3D scene geometry and export Sponge .schem files in-game.",
   "authors": ["Vanguard"],
   "environment": "client",
   "entrypoints": {
