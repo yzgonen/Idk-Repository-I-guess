@@ -28,17 +28,20 @@ public final class GroqArchitectureBuilder {
         objects.sort(Comparator.comparingDouble(GroqArchitectAI.Primitive::confidence).reversed());
         int total=Math.max(1,objects.size()),done=0;
         for(GroqArchitectAI.Primitive p:objects){
-            if(p.confidence()<.20f)continue;
+            if(p.confidence()<.20f || p.worldBox()==null)continue;
             Placed b=placeBox(p,depth,w,h,d);
             int mat=palette.getOrDefault(p.minecraftBlock(),palette.get("minecraft:stone_bricks"));
             if((p.minecraftBlock()==null||p.minecraftBlock().isBlank())&&p.imageBox()!=null) mat=sampleMaterial(img,p.imageBox(),palette);
             String type=p.type();
             switch(type){
                 case "opening","door" -> carvers.add(b);
-                case "window" -> fillBox(blocks,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,palette.get("minecraft:tinted_glass"));
+                case "window" -> {
+                    int windowMat=(p.minecraftBlock()==null||p.minecraftBlock().isBlank())?palette.get("minecraft:glass"):mat;
+                    fillBox(blocks,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,windowMat);
+                }
                 case "floor" -> buildFloor(blocks,w,h,d,b,mat);
                 case "roof","slab","platform" -> buildSlab(blocks,w,h,d,b,mat,p.hollow());
-                case "column" -> buildRepeatedColumns(blocks,w,h,d,b,mat,p.repeats(),p.hollow());
+                case "column" -> buildRepeatedColumns(blocks,w,h,d,b,mat,p.repeats(),p.hollow(),p.axis());
                 case "beam","wall","detail","object","terrain" -> buildSolidOrShell(blocks,w,h,d,b,mat,p.hollow());
                 case "stairs" -> buildSlope(blocks,w,h,d,b,mat,p.axis(),true);
                 case "ramp" -> buildSlope(blocks,w,h,d,b,mat,p.axis(),false);
@@ -89,11 +92,24 @@ public final class GroqArchitectureBuilder {
     private static void buildSolidOrShell(int[]a,int w,int h,int d,Placed b,int mat,boolean hollow){
         if(hollow)shellBox(a,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,mat);else fillBox(a,w,h,d,b.x0,b.y0,b.z0,b.x1,b.y1,b.z1,mat);
     }
-    private static void buildRepeatedColumns(int[]a,int w,int h,int d,Placed b,int mat,int repeats,boolean hollow){
+    private static void buildRepeatedColumns(int[]a,int w,int h,int d,Placed b,int mat,int repeats,boolean hollow,String axis){
         repeats=Math.max(1,repeats);
         if(repeats==1){buildSolidOrShell(a,w,h,d,b,mat,hollow);return;}
-        int span=Math.max(1,b.x1-b.x0),step=Math.max(1,span/Math.max(1,repeats-1)),th=Math.max(1,span/Math.max(8,repeats*4));
-        for(int i=0;i<repeats;i++){int cx=clamp(b.x0+i*step,b.x0,b.x1);Placed c=new Placed(Math.max(b.x0,cx-th/2),b.y0,b.z0,Math.min(b.x1,cx+th/2),b.y1,b.z1);buildSolidOrShell(a,w,h,d,c,mat,hollow);}
+        if("z".equals(axis)){
+            int span=Math.max(1,b.z1-b.z0),step=Math.max(1,span/Math.max(1,repeats-1)),th=Math.max(1,span/Math.max(8,repeats*4));
+            for(int i=0;i<repeats;i++){
+                int cz=clamp(b.z0+i*step,b.z0,b.z1);
+                Placed c=new Placed(b.x0,b.y0,Math.max(b.z0,cz-th/2),b.x1,b.y1,Math.min(b.z1,cz+th/2));
+                buildSolidOrShell(a,w,h,d,c,mat,hollow);
+            }
+        }else{
+            int span=Math.max(1,b.x1-b.x0),step=Math.max(1,span/Math.max(1,repeats-1)),th=Math.max(1,span/Math.max(8,repeats*4));
+            for(int i=0;i<repeats;i++){
+                int cx=clamp(b.x0+i*step,b.x0,b.x1);
+                Placed c=new Placed(Math.max(b.x0,cx-th/2),b.y0,b.z0,Math.min(b.x1,cx+th/2),b.y1,b.z1);
+                buildSolidOrShell(a,w,h,d,c,mat,hollow);
+            }
+        }
     }
     private static void buildSlope(int[]a,int w,int h,int d,Placed b,int mat,String axis,boolean stairs){
         if("x".equals(axis)){
@@ -140,7 +156,14 @@ public final class GroqArchitectureBuilder {
     private static float medianDepth(float[][]d,GroqArchitectAI.Rect r){int h=d.length,w=d[0].length;int x0=clamp(Math.round(r.x0()*(w-1)),0,w-1),x1=clamp(Math.round(r.x1()*(w-1)),x0,w-1),y0=clamp(Math.round(r.y0()*(h-1)),0,h-1),y1=clamp(Math.round(r.y1()*(h-1)),y0,h-1);float[]v=new float[Math.max(1,(x1-x0+1)*(y1-y0+1))];int k=0;for(int y=y0;y<=y1;y+=2)for(int x=x0;x<=x1;x+=2)v[k++]=d[y][x];if(k==0)return .5f;Arrays.sort(v,0,k);return v[k/2];}
     private static BufferedImage scale(BufferedImage s,int w,int h){BufferedImage o=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);Graphics2D g=o.createGraphics();g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,RenderingHints.VALUE_INTERPOLATION_BILINEAR);g.drawImage(s,0,0,w,h,null);g.dispose();return o;}
     private static float[][] resizeDepth(float[][]s,int w,int h){int sh=s.length,sw=s[0].length;float[][]o=new float[h][w];for(int y=0;y<h;y++){int sy=Math.min(sh-1,Math.round(y*(sh-1f)/Math.max(1,h-1)));for(int x=0;x<w;x++){int sx=Math.min(sw-1,Math.round(x*(sw-1f)/Math.max(1,w-1)));o[y][x]=s[sy][sx];}}return o;}
-    private static float[][] normalizeDepth(float[][]d){float lo=Float.POSITIVE_INFINITY,hi=Float.NEGATIVE_INFINITY;for(float[]r:d)for(float v:r)if(Float.isFinite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v);}float range=Math.max(1e-5f,hi-lo);for(int y=0;y<d.length;y++)for(int x=0;x<d[0].length;x++)d[y][x]=(d[y][x]-lo)/range;return d;}
+    private static float[][] normalizeDepth(float[][]d){
+        float lo=Float.POSITIVE_INFINITY,hi=Float.NEGATIVE_INFINITY;
+        for(float[]r:d)for(float v:r)if(Float.isFinite(v)){lo=Math.min(lo,v);hi=Math.max(hi,v);}
+        float range=hi-lo;
+        if(!Float.isFinite(range)||range<1e-4f){for(float[]r:d)Arrays.fill(r,.5f);return d;}
+        for(int y=0;y<d.length;y++)for(int x=0;x<d[0].length;x++)d[y][x]=Float.isFinite(d[y][x])?(d[y][x]-lo)/range:.5f;
+        return d;
+    }
 
     private static void fillBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1,int mat){for(int y=Math.max(0,y0);y<=Math.min(h-1,y1);y++)for(int z=Math.max(0,z0);z<=Math.min(d-1,z1);z++)for(int x=Math.max(0,x0);x<=Math.min(w-1,x1);x++)a[index(w,d,x,y,z)]=mat;}
     private static void shellBox(int[]a,int w,int h,int d,int x0,int y0,int z0,int x1,int y1,int z1,int mat){for(int y=y0;y<=y1;y++)for(int z=z0;z<=z1;z++)for(int x=x0;x<=x1;x++)if(x==x0||x==x1||y==y0||y==y1||z==z0||z==z1)set(a,w,h,d,x,y,z,mat);}
