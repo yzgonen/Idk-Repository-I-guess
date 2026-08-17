@@ -3,7 +3,6 @@ package com.vanguard.image2schem;
 import org.junit.jupiter.api.Test;
 
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -17,7 +16,7 @@ final class GroqArchitectureBuilderTest {
                 p("floor", box(.08f,.05f,.15f,.92f,.08f,.82f), "minecraft:smooth_stone"),
                 p("wall", box(.08f,.08f,.68f,.92f,.62f,.72f), "minecraft:white_concrete"),
                 p("roof", box(.05f,.62f,.62f,.95f,.67f,.78f), "minecraft:gray_concrete"),
-                p("opening", box(.43f,.08f,.66f,.57f,.38f,.75f), "minecraft:air"),
+                p("opening", box(.43f,.08f,.66f,.57f,.38f,.75f), ""),
                 p("window", box(.16f,.30f,.65f,.32f,.48f,.74f), "minecraft:glass"));
 
         ImageConverter.Result r = build(plan);
@@ -34,7 +33,7 @@ final class GroqArchitectureBuilderTest {
                 p("tower", box(.06f,.06f,.38f,.25f,.86f,.62f), "minecraft:stone_bricks", "z", true, 1),
                 p("tower", box(.75f,.06f,.38f,.94f,.86f,.62f), "minecraft:stone_bricks", "z", true, 1),
                 p("arch", box(.39f,.08f,.43f,.61f,.48f,.61f), "minecraft:polished_andesite"),
-                p("opening", box(.44f,.08f,.42f,.56f,.34f,.64f), "minecraft:air"));
+                p("opening", box(.44f,.08f,.42f,.56f,.34f,.64f), ""));
 
         ImageConverter.Result r = build(plan);
         assertValid(r);
@@ -101,6 +100,26 @@ final class GroqArchitectureBuilderTest {
     }
 
     @Test
+    void flatDepthMapIsNeutralInsteadOfPushingUncertainObjectsToTheBack() {
+        var uncertain = new GroqArchitectAI.Primitive(
+                "wall", FULL, box(.20f,.10f,.08f,.40f,.75f,.12f), "minecraft:bricks", "z", false, 1, .70f);
+        ImageConverter.Result r=build(plan("flat depth",1f,.8f,.8f,uncertain));
+        assertValid(r);
+        int[] z=nonAirZBounds(r);
+        assertTrue(z[1] < Math.round(r.length()*.30f), "flat neural depth is no evidence and must not drag geometry deep into the build");
+    }
+
+    @Test
+    void requestedWindowMaterialIsNotSilentlyReplacedWithTintedGlass() {
+        var window=p("window",box(.20f,.20f,.45f,.80f,.75f,.47f),"minecraft:glass");
+        ImageConverter.Result r=build(plan("glass wall",1f,.8f,.5f,window));
+        assertValid(r);
+        int glassId=r.palette().get("minecraft:glass");
+        assertTrue(nonAir(r)>0);
+        for(int id:r.paletteIds()) if(id!=0) assertEquals(glassId,id,"window should use the material selected by the scene plan");
+    }
+
+    @Test
     void edgeBoxesNeverEscapeArrayAndPaletteIdsRemainValid() {
         var plan = plan("edge case", 1f, 1f, 1f,
                 p("tower", box(0,0,0,.08f,1,.08f), "minecraft:polished_blackstone_bricks", "z", true, 1),
@@ -164,7 +183,13 @@ final class GroqArchitectureBuilderTest {
 
     private static int[] nonAirYBounds(ImageConverter.Result r) {
         int min=r.height(),max=-1;
-        for(int y=0;y<r.height();y++)for(int z=0;z<r.length();z++)for(int x=0;x<r.width();x++)if(r.paletteIds()[index(r,x,y,z)]!=0){min=Math.min(min,y);max=Math.max(max,y);} 
+        for(int y=0;y<r.height();y++)for(int z=0;z<r.length();z++)for(int x=0;x<r.width();x++)if(r.paletteIds()[index(r,x,y,z)]!=0){min=Math.min(min,y);max=Math.max(max,y);}
+        return new int[]{min,max};
+    }
+
+    private static int[] nonAirZBounds(ImageConverter.Result r) {
+        int min=r.length(),max=-1;
+        for(int y=0;y<r.height();y++)for(int z=0;z<r.length();z++)for(int x=0;x<r.width();x++)if(r.paletteIds()[index(r,x,y,z)]!=0){min=Math.min(min,z);max=Math.max(max,z);}
         return new int[]{min,max};
     }
 
