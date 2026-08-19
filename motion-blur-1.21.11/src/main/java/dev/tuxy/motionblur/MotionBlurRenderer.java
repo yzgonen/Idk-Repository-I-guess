@@ -22,9 +22,9 @@ public final class MotionBlurRenderer {
     private static final Identifier EFFECT_ID = Identifier.of(MOD_ID, "motion_blur");
     private static final Set<Identifier> EXTERNAL_TARGETS = Set.of(PostEffectProcessor.MAIN);
 
-    // Medium classic-client temporal blur at 60 FPS.
+    // Light classic-client temporal blur at 60 FPS.
     // Frame-rate compensated so the visual strength stays similar at high FPS.
-    private static final float REFERENCE_BLEND_AT_60_FPS = 0.55F;
+    private static final float REFERENCE_BLEND_AT_60_FPS = 0.24F;
 
     private static long lastFrameNanos;
     private static Object lastWorld;
