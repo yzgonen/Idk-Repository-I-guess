@@ -22,10 +22,6 @@ public final class MotionBlurRenderer {
     private static final Identifier EFFECT_ID = Identifier.of(MOD_ID, "motion_blur");
     private static final Set<Identifier> EXTERNAL_TARGETS = Set.of(PostEffectProcessor.MAIN);
 
-    // Light classic-client temporal blur at 60 FPS.
-    // Frame-rate compensated so the visual strength stays similar at high FPS.
-    private static final float REFERENCE_BLEND_AT_60_FPS = 0.24F;
-
     private static long lastFrameNanos;
     private static Object lastWorld;
 
@@ -36,6 +32,13 @@ public final class MotionBlurRenderer {
         if (client.world == null || client.player == null) {
             lastWorld = null;
             lastFrameNanos = 0L;
+            return;
+        }
+
+        int strengthPercent = MotionBlurConfig.getStrengthPercent();
+        if (strengthPercent <= 0) {
+            lastFrameNanos = 0L;
+            lastWorld = client.world;
             return;
         }
 
@@ -50,12 +53,12 @@ public final class MotionBlurRenderer {
             return;
         }
 
-        float blendFactor = worldChanged ? 0.0F : calculateBlendFactor();
+        float blendFactor = worldChanged ? 0.0F : calculateBlendFactor(strengthPercent);
         applyBlendFactor(processor, blendFactor);
         processor.render(client.getFramebuffer(), allocator);
     }
 
-    private static float calculateBlendFactor() {
+    private static float calculateBlendFactor(int strengthPercent) {
         long now = System.nanoTime();
         if (lastFrameNanos == 0L) {
             lastFrameNanos = now;
@@ -70,8 +73,11 @@ public final class MotionBlurRenderer {
             return 0.0F;
         }
 
-        double normalizedFrames = deltaSeconds * 60.0;
-        return (float) Math.pow(REFERENCE_BLEND_AT_60_FPS, normalizedFrames);
+        // 1-99% map directly to the original temporal blend scale.
+        // 100% is capped just below 1.0 so the image never freezes on an old frame.
+        double referenceBlendAt60Fps = Math.min(strengthPercent / 100.0D, 0.995D);
+        double normalizedFrames = deltaSeconds * 60.0D;
+        return (float) Math.pow(referenceBlendAt60Fps, normalizedFrames);
     }
 
     private static void applyBlendFactor(PostEffectProcessor processor, float blendFactor) {
