@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "dev.tuxy.motionblur.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "GameRendererMixin",
+    "PostEffectPassAccessor",
+    "PostEffectProcessorAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
