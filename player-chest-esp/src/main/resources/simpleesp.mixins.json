@@ -3,7 +3,10 @@
   "package": "com.example.simpleesp.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "BlockRenderManagerMixin"
+    "BlockRenderManagerMixin",
+    "EntityLookMixin",
+    "SodiumBlockRendererMixin",
+    "SodiumFluidRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1
