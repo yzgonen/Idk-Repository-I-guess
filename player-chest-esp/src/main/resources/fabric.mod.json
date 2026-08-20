@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "simpleesp",
+  "version": "${version}",
+  "name": "Player + Chest ESP",
+  "description": "Client-side player and chest outline ESP with keybind toggles.",
+  "authors": ["OpenAI"],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.example.simpleesp.SimpleEspClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
