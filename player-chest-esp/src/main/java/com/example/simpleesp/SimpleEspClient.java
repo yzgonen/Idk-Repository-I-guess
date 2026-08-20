@@ -1,10 +1,9 @@
 package com.example.simpleesp;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ShulkerBoxBlock;
@@ -13,12 +12,9 @@ import net.minecraft.block.entity.ChestBlockEntity;
 import net.minecraft.block.entity.EnderChestBlockEntity;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.BufferBuilder;
-import net.minecraft.client.render.BufferRenderer;
-import net.minecraft.client.render.GameRenderer;
-import net.minecraft.client.render.Tessellator;
-import net.minecraft.client.render.VertexFormat;
-import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.render.RenderLayers;
+import net.minecraft.client.render.VertexConsumer;
+import net.minecraft.client.render.VertexRendering;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
@@ -29,8 +25,8 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.ChunkPos;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.chunk.WorldChunk;
-import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
 public final class SimpleEspClient implements ClientModInitializer {
@@ -53,21 +49,21 @@ public final class SimpleEspClient implements ClientModInitializer {
                 "key.simpleesp.toggle_players",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_P,
-                "category.simpleesp"
+                KeyBinding.Category.MISC
         ));
 
         toggleChests = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.simpleesp.toggle_chests",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_O,
-                "category.simpleesp"
+                KeyBinding.Category.MISC
         ));
 
         toggleXray = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.simpleesp.toggle_xray",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_BACKSLASH,
-                "category.simpleesp"
+                KeyBinding.Category.MISC
         ));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -88,38 +84,25 @@ public final class SimpleEspClient implements ClientModInitializer {
             }
         });
 
-        WorldRenderEvents.LAST.register(context -> {
-            if (MC.world == null || MC.player == null || (!playerEsp && !chestEsp)) return;
-            MatrixStack matrices = context.matrixStack();
-            if (matrices == null) return;
+        WorldRenderEvents.END_MAIN.register(context -> {
+            if (MC.world == null || MC.player == null || (!playerEsp && !chestEsp)) {
+                return;
+            }
 
-            Vec3d camera = context.camera().getPos();
+            MatrixStack matrices = context.matrices();
+            VertexConsumer lines = context.consumers().getBuffer(RenderLayers.LINES_TRANSLUCENT);
+            Vec3d camera = MC.gameRenderer.getCamera().getCameraPos();
+
             matrices.push();
             matrices.translate(-camera.x, -camera.y, -camera.z);
 
-            RenderSystem.enableBlend();
-            RenderSystem.defaultBlendFunc();
-            RenderSystem.disableDepthTest();
-            RenderSystem.disableCull();
-            RenderSystem.lineWidth(2.0F);
-            RenderSystem.setShader(GameRenderer::getPositionColorProgram);
-
-            BufferBuilder buffer = Tessellator.getInstance().begin(VertexFormat.DrawMode.DEBUG_LINES, VertexFormats.POSITION_COLOR);
-            Matrix4f matrix = matrices.peek().getPositionMatrix();
-
             if (playerEsp) {
-                renderPlayers(MC.world, buffer, matrix);
+                renderPlayers(MC.world, matrices, lines);
             }
             if (chestEsp) {
-                renderChests(MC.world, buffer, matrix);
+                renderChests(MC.world, matrices, lines);
             }
 
-            BufferRenderer.drawWithGlobalProgram(buffer.end());
-
-            RenderSystem.lineWidth(1.0F);
-            RenderSystem.enableCull();
-            RenderSystem.enableDepthTest();
-            RenderSystem.disableBlend();
             matrices.pop();
         });
     }
@@ -156,25 +139,30 @@ public final class SimpleEspClient implements ClientModInitializer {
                 || state.isOf(Blocks.BARREL);
     }
 
-    private static void renderPlayers(ClientWorld world, BufferBuilder buffer, Matrix4f matrix) {
+    private static void renderPlayers(ClientWorld world, MatrixStack matrices, VertexConsumer lines) {
         Vec3d selfPos = MC.player.getPos();
         for (PlayerEntity player : world.getPlayers()) {
-            if (player == MC.player || player.isRemoved() || player.isSpectator()) continue;
-            if (player.squaredDistanceTo(selfPos) > MAX_PLAYER_DISTANCE_SQ) continue;
+            if (player == MC.player || player.isRemoved() || player.isSpectator()) {
+                continue;
+            }
+            if (player.squaredDistanceTo(selfPos) > MAX_PLAYER_DISTANCE_SQ) {
+                continue;
+            }
 
-            Box box = player.getBoundingBox().expand(0.04);
-            drawBox(buffer, matrix, box, 255, 65, 65, 255);
+            drawBox(matrices, lines, player.getBoundingBox().expand(0.04), 0xFFFF4141);
         }
     }
 
-    private static void renderChests(ClientWorld world, BufferBuilder buffer, Matrix4f matrix) {
+    private static void renderChests(ClientWorld world, MatrixStack matrices, VertexConsumer lines) {
         ChunkPos center = new ChunkPos(MC.player.getBlockPos());
 
         for (int dx = -CHEST_SCAN_CHUNK_RADIUS; dx <= CHEST_SCAN_CHUNK_RADIUS; dx++) {
             for (int dz = -CHEST_SCAN_CHUNK_RADIUS; dz <= CHEST_SCAN_CHUNK_RADIUS; dz++) {
                 int chunkX = center.x + dx;
                 int chunkZ = center.z + dz;
-                if (!world.isChunkLoaded(chunkX, chunkZ)) continue;
+                if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                    continue;
+                }
 
                 WorldChunk chunk = world.getChunk(chunkX, chunkZ);
                 for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
@@ -184,47 +172,15 @@ public final class SimpleEspClient implements ClientModInitializer {
 
                     BlockPos pos = blockEntity.getPos();
                     Box box = new Box(pos).expand(0.02);
-
-                    if (blockEntity instanceof EnderChestBlockEntity) {
-                        drawBox(buffer, matrix, box, 180, 80, 255, 255);
-                    } else {
-                        drawBox(buffer, matrix, box, 255, 185, 35, 255);
-                    }
+                    int color = blockEntity instanceof EnderChestBlockEntity ? 0xFFB450FF : 0xFFFFB923;
+                    drawBox(matrices, lines, box, color);
                 }
             }
         }
     }
 
-    private static void drawBox(BufferBuilder buffer, Matrix4f matrix, Box b, int r, int g, int blue, int a) {
-        float x1 = (float) b.minX;
-        float y1 = (float) b.minY;
-        float z1 = (float) b.minZ;
-        float x2 = (float) b.maxX;
-        float y2 = (float) b.maxY;
-        float z2 = (float) b.maxZ;
-
-        line(buffer, matrix, x1,y1,z1, x2,y1,z1, r,g,blue,a);
-        line(buffer, matrix, x2,y1,z1, x2,y1,z2, r,g,blue,a);
-        line(buffer, matrix, x2,y1,z2, x1,y1,z2, r,g,blue,a);
-        line(buffer, matrix, x1,y1,z2, x1,y1,z1, r,g,blue,a);
-
-        line(buffer, matrix, x1,y2,z1, x2,y2,z1, r,g,blue,a);
-        line(buffer, matrix, x2,y2,z1, x2,y2,z2, r,g,blue,a);
-        line(buffer, matrix, x2,y2,z2, x1,y2,z2, r,g,blue,a);
-        line(buffer, matrix, x1,y2,z2, x1,y2,z1, r,g,blue,a);
-
-        line(buffer, matrix, x1,y1,z1, x1,y2,z1, r,g,blue,a);
-        line(buffer, matrix, x2,y1,z1, x2,y2,z1, r,g,blue,a);
-        line(buffer, matrix, x2,y1,z2, x2,y2,z2, r,g,blue,a);
-        line(buffer, matrix, x1,y1,z2, x1,y2,z2, r,g,blue,a);
-    }
-
-    private static void line(BufferBuilder buffer, Matrix4f matrix,
-                             float x1, float y1, float z1,
-                             float x2, float y2, float z2,
-                             int r, int g, int b, int a) {
-        buffer.vertex(matrix, x1, y1, z1).color(r, g, b, a);
-        buffer.vertex(matrix, x2, y2, z2).color(r, g, b, a);
+    private static void drawBox(MatrixStack matrices, VertexConsumer lines, Box box, int color) {
+        VertexRendering.drawOutline(matrices, lines, VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, color, 2.0F);
     }
 
     private static void hud(String message) {
