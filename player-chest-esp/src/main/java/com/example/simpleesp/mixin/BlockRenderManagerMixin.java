@@ -4,15 +4,17 @@ import com.example.simpleesp.SimpleEspClient;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.block.BlockRenderManager;
+import net.minecraft.client.render.model.BlockModelPart;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.fluid.FluidState;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.random.Random;
 import net.minecraft.world.BlockRenderView;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import java.util.List;
 
 @Mixin(BlockRenderManager.class)
 public abstract class BlockRenderManagerMixin {
@@ -25,7 +27,7 @@ public abstract class BlockRenderManagerMixin {
             MatrixStack matrices,
             VertexConsumer vertexConsumer,
             boolean cull,
-            Random random,
+            List<BlockModelPart> parts,
             CallbackInfo ci
     ) {
         if (SimpleEspClient.isXrayEnabled() && !SimpleEspClient.shouldRenderInXray(state)) {
