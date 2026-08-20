@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "simpleesp",
   "version": "${version}",
-  "name": "Player + Chest ESP + X-Ray",
-  "description": "Client-side player/chest ESP and toggleable X-Ray for Minecraft 1.21.11.",
+  "name": "Player + Chest ESP + X-Ray + Freecam",
+  "description": "Client-side player/chest ESP, Sodium-aware X-Ray, and 10-chunk Freecam for Minecraft 1.21.11.",
   "authors": ["OpenAI"],
   "environment": "client",
   "entrypoints": {
