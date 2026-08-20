@@ -50,10 +50,10 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- player-chest-esp/build-log.txt
           git commit -m 'ESP 1.21.11 build failure log' || true
-          git push origin HEAD:player-chest-esp-build
+          git push origin HEAD:player-chest-esp-build || true
           exit 1
 
-      - name: Put release JAR in repo
+      - name: Stage release JAR
         if: steps.build.outcome == 'success'
         shell: bash
         run: |
@@ -62,9 +62,24 @@ jobs:
           JAR=$(find player-chest-esp/build/libs -maxdepth 1 -type f -name 'player-chest-esp-*.jar' ! -name '*-sources.jar' | head -n 1)
           test -n "$JAR"
           cp "$JAR" player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
+
+      - name: Upload JAR artifact
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Player-Chest-ESP-XRay-1.21.11-v1.4.0
+          path: player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
+          if-no-files-found: error
+
+      - name: Commit release JAR on non-PR builds
+        if: steps.build.outcome == 'success' && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
           rm -f player-chest-esp/build-log.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin player-chest-esp-build
           git add -- player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
           git add -u -- player-chest-esp/build-log.txt || true
           if git diff --cached --quiet; then
@@ -73,11 +88,3 @@ jobs:
             git commit -m 'Build Player Chest ESP X-Ray 1.21.11 JAR'
             git push origin HEAD:player-chest-esp-build
           fi
-
-      - name: Upload JAR artifact too
-        if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Player-Chest-ESP-XRay-1.21.11-v1.4.0
-          path: player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
-          if-no-files-found: error
