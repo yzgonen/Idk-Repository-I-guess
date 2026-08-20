@@ -2,14 +2,11 @@ package com.example.simpleesp;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ShulkerBoxBlock;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.text.Text;
 import org.lwjgl.glfw.GLFW;
@@ -17,53 +14,45 @@ import org.lwjgl.glfw.GLFW;
 public final class SimpleEspClient implements ClientModInitializer {
     private static final MinecraftClient MC = MinecraftClient.getInstance();
 
-    private static KeyBinding togglePlayers;
-    private static KeyBinding toggleChests;
-    private static KeyBinding toggleXray;
-
     private static boolean playerEsp = true;
     private static boolean chestEsp = true;
     private static volatile boolean xrayEnabled = false;
 
+    private static boolean pWasDown = false;
+    private static boolean oWasDown = false;
+    private static boolean backslashWasDown = false;
+
     @Override
     public void onInitializeClient() {
-        togglePlayers = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.simpleesp.toggle_players",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_P,
-                KeyBinding.Category.MISC
-        ));
-
-        toggleChests = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.simpleesp.toggle_chests",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_O,
-                KeyBinding.Category.MISC
-        ));
-
-        toggleXray = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.simpleesp.toggle_xray",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_BACKSLASH,
-                KeyBinding.Category.MISC
-        ));
-
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (togglePlayers.wasPressed()) {
+            if (client.getWindow() == null) {
+                return;
+            }
+
+            long window = client.getWindow().getHandle();
+            boolean pDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_P) == GLFW.GLFW_PRESS;
+            boolean oDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_O) == GLFW.GLFW_PRESS;
+            boolean backslashDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_BACKSLASH) == GLFW.GLFW_PRESS;
+
+            if (pDown && !pWasDown) {
                 playerEsp = !playerEsp;
                 hud("Player ESP: " + (playerEsp ? "ON" : "OFF"));
             }
-            while (toggleChests.wasPressed()) {
+            if (oDown && !oWasDown) {
                 chestEsp = !chestEsp;
                 hud("Chest ESP: " + (chestEsp ? "ON" : "OFF"));
             }
-            while (toggleXray.wasPressed()) {
+            if (backslashDown && !backslashWasDown) {
                 xrayEnabled = !xrayEnabled;
                 hud("X-Ray: " + (xrayEnabled ? "ON" : "OFF"));
                 if (client.worldRenderer != null) {
                     client.worldRenderer.reload();
                 }
             }
+
+            pWasDown = pDown;
+            oWasDown = oDown;
+            backslashWasDown = backslashDown;
         });
 
         WorldRenderEvents.END_MAIN.register(ThroughWallEspRenderer::render);
