@@ -22,6 +22,7 @@ import net.minecraft.client.util.BufferAllocator;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.ChunkPos;
@@ -50,7 +51,7 @@ public final class ThroughWallEspRenderer {
 
     private static final RenderPipeline THROUGH_WALL_LINES = RenderPipelines.register(
             RenderPipeline.builder(RenderPipelines.RENDERTYPE_LINES_SNIPPET)
-                    .withLocation("simpleesp:pipeline/lines_through_walls")
+                    .withLocation(Identifier.of("simpleesp", "pipeline/lines_through_walls"))
                     .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)
                     .withDepthWrite(false)
                     .build()
