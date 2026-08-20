@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "tuxymotionblur",
+  "version": "${version}",
+  "name": "Tuxy Motion Blur",
+  "description": "Classic client-style motion blur for Minecraft 1.21.11 with an adjustable 0-100% strength setting.",
+  "authors": ["Tuxy"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "modmenu": [
+      "dev.tuxy.motionblur.compat.TuxyMotionBlurModMenu"
+    ]
+  },
+  "mixins": [
+    "tuxymotionblur.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  },
+  "suggests": {
+    "modmenu": ">=17.0.0"
+  }
+}
