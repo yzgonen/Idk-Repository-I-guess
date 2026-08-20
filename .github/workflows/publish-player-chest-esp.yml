@@ -31,7 +31,7 @@ jobs:
         with:
           gradle-version: '9.5.1'
 
-      - name: Build Fabric JAR (ESP v1.2.0 Yarn renderer)
+      - name: Build Fabric JAR (ESP v1.3.0)
         id: build
         continue-on-error: true
         shell: bash
@@ -76,6 +76,6 @@ jobs:
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Player-Chest-ESP-XRay-1.21.11-v1.2.0
+          name: Player-Chest-ESP-XRay-1.21.11-v1.3.0
           path: player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
           if-no-files-found: error
