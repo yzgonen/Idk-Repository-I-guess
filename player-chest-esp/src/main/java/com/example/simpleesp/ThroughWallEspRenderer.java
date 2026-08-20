@@ -138,9 +138,13 @@ public final class ThroughWallEspRenderer {
         for (ChestTarget target : CHEST_TARGETS) {
             BlockPos pos = target.pos();
             double cx = pos.getX() + 0.5;
-            double cy = pos.getY() + 0.5;
             double cz = pos.getZ() + 0.5;
-            if (scanOrigin.squaredDistanceTo(cx, cy, cz) > RANGE_SQ) {
+
+            // Chest range is horizontal only. Y is intentionally ignored so a chest can
+            // be anywhere from the bottom to the top of the loaded world column.
+            double dx = cx - scanOrigin.x;
+            double dz = cz - scanOrigin.z;
+            if (dx * dx + dz * dz > RANGE_SQ) {
                 continue;
             }
 
@@ -182,6 +186,8 @@ public final class ThroughWallEspRenderer {
         chestScanChunkX = center.x;
         chestScanChunkZ = center.z;
 
+        // WorldChunk#getBlockEntities() covers block entities throughout the loaded
+        // vertical chunk column, so this finds chests far below and far above the player.
         for (int dx = -RANGE_CHUNKS; dx <= RANGE_CHUNKS; dx++) {
             for (int dz = -RANGE_CHUNKS; dz <= RANGE_CHUNKS; dz++) {
                 int chunkX = center.x + dx;
