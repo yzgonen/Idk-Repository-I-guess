@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "simpleesp",
   "version": "${version}",
-  "name": "Player + Chest ESP + Advanced X-Ray",
-  "description": "Client-side player/chest ESP and Sodium-aware long-range ore, lava, cave, and mining-outline X-Ray for Minecraft 1.21.11.",
+  "name": "Player + Full-Height Chest ESP",
+  "description": "Client-side player ESP and full-height chest ESP for Minecraft 1.21.11. Chest ESP scans loaded chunks within 10 horizontal chunks and ignores vertical distance.",
   "authors": ["OpenAI"],
   "environment": "client",
   "entrypoints": {
@@ -11,9 +11,6 @@
       "com.example.simpleesp.SimpleEspClient"
     ]
   },
-  "mixins": [
-    "simpleesp.mixins.json"
-  ],
   "depends": {
     "fabricloader": ">=0.18.4",
     "minecraft": "~1.21.11",
