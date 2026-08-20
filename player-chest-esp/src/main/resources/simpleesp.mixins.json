@@ -4,9 +4,8 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "BlockRenderManagerMixin",
-    "EntityLookMixin",
-    "SodiumBlockRendererMixin",
-    "SodiumFluidRendererMixin"
+    "MouseFreecamMixin",
+    "SodiumLevelSliceMixin"
   ],
   "injectors": {
     "defaultRequire": 1
