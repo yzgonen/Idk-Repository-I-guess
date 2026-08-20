@@ -15,7 +15,6 @@ public final class SimpleEspClient implements ClientModInitializer {
     private static final MinecraftClient MC = MinecraftClient.getInstance();
 
     private static boolean playerEsp = true;
-    private static boolean chestEsp = true;
     private static volatile boolean xrayEnabled = false;
 
     private static boolean pWasDown = false;
@@ -38,10 +37,11 @@ public final class SimpleEspClient implements ClientModInitializer {
                 playerEsp = !playerEsp;
                 hud("Player ESP: " + (playerEsp ? "ON" : "OFF"));
             }
+
             if (oDown && !oWasDown) {
-                chestEsp = !chestEsp;
-                hud("Chest ESP: " + (chestEsp ? "ON" : "OFF"));
+                refreshChestEsp(client);
             }
+
             if (backslashDown && !backslashWasDown) {
                 xrayEnabled = !xrayEnabled;
                 hud("X-Ray: " + (xrayEnabled ? "ON" : "OFF"));
@@ -58,12 +58,21 @@ public final class SimpleEspClient implements ClientModInitializer {
         WorldRenderEvents.END_MAIN.register(ThroughWallEspRenderer::render);
     }
 
+    private static void refreshChestEsp(MinecraftClient client) {
+        // Chest ESP is always enabled. O forces nearby chunk meshes to refresh;
+        // the ESP renderer then immediately re-scans loaded chunks around the player.
+        if (client.worldRenderer != null) {
+            client.worldRenderer.reload();
+        }
+        hud("Chest ESP: refreshed");
+    }
+
     public static boolean isPlayerEspEnabled() {
         return playerEsp;
     }
 
     public static boolean isChestEspEnabled() {
-        return chestEsp;
+        return true;
     }
 
     public static boolean isXrayEnabled() {
