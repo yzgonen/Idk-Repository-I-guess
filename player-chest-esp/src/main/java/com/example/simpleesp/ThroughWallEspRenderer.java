@@ -34,6 +34,8 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.lwjgl.system.MemoryUtil;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 
@@ -49,6 +51,11 @@ public final class ThroughWallEspRenderer {
     private static final Matrix4f TEXTURE_MATRIX = new Matrix4f();
     private static MappableRingBuffer vertexBuffer;
 
+    private static final List<ChestTarget> CHEST_TARGETS = new ArrayList<>();
+    private static ClientWorld chestScanWorld;
+    private static int chestScanChunkX = Integer.MIN_VALUE;
+    private static int chestScanChunkZ = Integer.MIN_VALUE;
+
     private static final RenderPipeline THROUGH_WALL_LINES = RenderPipelines.register(
             RenderPipeline.builder(RenderPipelines.RENDERTYPE_LINES_SNIPPET)
                     .withLocation(Identifier.of("simpleesp", "pipeline/lines_through_walls"))
@@ -62,9 +69,6 @@ public final class ThroughWallEspRenderer {
 
     public static void render(WorldRenderContext context) {
         if (MC.world == null || MC.player == null) {
-            return;
-        }
-        if (!SimpleEspClient.isPlayerEspEnabled() && !SimpleEspClient.isChestEspEnabled()) {
             return;
         }
 
@@ -127,10 +131,56 @@ public final class ThroughWallEspRenderer {
     }
 
     private static int renderChests(ClientWorld world, MatrixStack matrices, BufferBuilder buffer) {
-        int count = 0;
         Vec3d scanOrigin = SimpleEspClient.getEspOrigin();
-        BlockPos originBlock = BlockPos.ofFloored(scanOrigin.x, scanOrigin.y, scanOrigin.z);
-        ChunkPos center = new ChunkPos(originBlock);
+        ensureChestScan(world, scanOrigin);
+
+        int count = 0;
+        for (ChestTarget target : CHEST_TARGETS) {
+            BlockPos pos = target.pos();
+            double cx = pos.getX() + 0.5;
+            double cy = pos.getY() + 0.5;
+            double cz = pos.getZ() + 0.5;
+            if (scanOrigin.squaredDistanceTo(cx, cy, cz) > RANGE_SQ) {
+                continue;
+            }
+
+            int color = target.ender() ? 0xFFB450FF : 0xFFFFB923;
+            Box box = new Box(pos).expand(0.025);
+            VertexRendering.drawOutline(
+                    matrices,
+                    buffer,
+                    VoxelShapes.cuboid(box),
+                    0.0,
+                    0.0,
+                    0.0,
+                    color,
+                    2.5F
+            );
+            count++;
+        }
+        return count;
+    }
+
+    private static void ensureChestScan(ClientWorld world, Vec3d origin) {
+        ChunkPos center = new ChunkPos(BlockPos.ofFloored(origin.x, origin.y, origin.z));
+        if (chestScanWorld != world || center.x != chestScanChunkX || center.z != chestScanChunkZ) {
+            hardRefreshChestScan(world, origin);
+        }
+    }
+
+    public static void hardRefreshChestScan(ClientWorld world, Vec3d origin) {
+        CHEST_TARGETS.clear();
+        chestScanWorld = world;
+
+        if (world == null) {
+            chestScanChunkX = Integer.MIN_VALUE;
+            chestScanChunkZ = Integer.MIN_VALUE;
+            return;
+        }
+
+        ChunkPos center = new ChunkPos(BlockPos.ofFloored(origin.x, origin.y, origin.z));
+        chestScanChunkX = center.x;
+        chestScanChunkZ = center.z;
 
         for (int dx = -RANGE_CHUNKS; dx <= RANGE_CHUNKS; dx++) {
             for (int dz = -RANGE_CHUNKS; dz <= RANGE_CHUNKS; dz++) {
@@ -142,35 +192,14 @@ public final class ThroughWallEspRenderer {
 
                 WorldChunk chunk = world.getChunk(chunkX, chunkZ);
                 for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
-                    if (!(blockEntity instanceof ChestBlockEntity) && !(blockEntity instanceof EnderChestBlockEntity)) {
-                        continue;
+                    if (blockEntity instanceof EnderChestBlockEntity) {
+                        CHEST_TARGETS.add(new ChestTarget(blockEntity.getPos().toImmutable(), true));
+                    } else if (blockEntity instanceof ChestBlockEntity) {
+                        CHEST_TARGETS.add(new ChestTarget(blockEntity.getPos().toImmutable(), false));
                     }
-
-                    BlockPos pos = blockEntity.getPos();
-                    double cx = pos.getX() + 0.5;
-                    double cy = pos.getY() + 0.5;
-                    double cz = pos.getZ() + 0.5;
-                    if (scanOrigin.squaredDistanceTo(cx, cy, cz) > RANGE_SQ) {
-                        continue;
-                    }
-
-                    int color = blockEntity instanceof EnderChestBlockEntity ? 0xFFB450FF : 0xFFFFB923;
-                    Box box = new Box(pos).expand(0.025);
-                    VertexRendering.drawOutline(
-                            matrices,
-                            buffer,
-                            VoxelShapes.cuboid(box),
-                            0.0,
-                            0.0,
-                            0.0,
-                            color,
-                            2.5F
-                    );
-                    count++;
                 }
             }
         }
-        return count;
     }
 
     private static GpuBuffer upload(BuiltBuffer.DrawParameters drawParameters, VertexFormat format, BuiltBuffer builtBuffer) {
@@ -235,10 +264,15 @@ public final class ThroughWallEspRenderer {
     }
 
     public static void close() {
+        CHEST_TARGETS.clear();
+        chestScanWorld = null;
         ALLOCATOR.close();
         if (vertexBuffer != null) {
             vertexBuffer.close();
             vertexBuffer = null;
         }
+    }
+
+    private record ChestTarget(BlockPos pos, boolean ender) {
     }
 }
