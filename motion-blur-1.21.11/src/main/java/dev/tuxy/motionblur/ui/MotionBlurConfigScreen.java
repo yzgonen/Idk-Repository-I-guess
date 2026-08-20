@@ -47,7 +47,12 @@ public final class MotionBlurConfigScreen extends Screen {
 
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float deltaTicks) {
-        this.renderBackground(context, mouseX, mouseY, deltaTicks);
+        // Do not call Screen#renderBackground here. When Mod Menu opens this screen,
+        // Minecraft may already have applied its one-per-frame GUI blur to the parent
+        // screen. Applying it again in the same frame crashes with
+        // "Can only blur once per frame" on 1.21.11.
+        context.fill(0, 0, this.width, this.height, 0xB0000000);
+
         context.drawCenteredTextWithShadow(this.textRenderer, this.title, this.width / 2, 40, 0xFFFFFF);
         context.drawCenteredTextWithShadow(
                 this.textRenderer,
