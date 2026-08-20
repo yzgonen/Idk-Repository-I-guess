@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "simpleesp",
   "version": "${version}",
-  "name": "Player + Chest ESP",
-  "description": "Client-side player and chest outline ESP with keybind toggles.",
+  "name": "Player + Chest ESP + X-Ray",
+  "description": "Client-side player/chest ESP and toggleable X-Ray for Minecraft 1.21.1.",
   "authors": ["OpenAI"],
   "environment": "client",
   "entrypoints": {
@@ -11,6 +11,9 @@
       "com.example.simpleesp.SimpleEspClient"
     ]
   },
+  "mixins": [
+    "simpleesp.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.16.0",
     "minecraft": "~1.21.1",
