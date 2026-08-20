@@ -140,7 +140,7 @@ public final class SimpleEspClient implements ClientModInitializer {
     }
 
     private static void renderPlayers(ClientWorld world, MatrixStack matrices, VertexConsumer lines) {
-        Vec3d selfPos = MC.player.getPos();
+        Vec3d selfPos = MC.player.getEntityPos();
         for (PlayerEntity player : world.getPlayers()) {
             if (player == MC.player || player.isRemoved() || player.isSpectator()) {
                 continue;
