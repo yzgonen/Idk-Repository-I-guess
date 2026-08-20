@@ -8,7 +8,7 @@ import net.minecraft.block.Blocks;
 import net.minecraft.block.ShulkerBoxBlock;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.input.Input;
-import net.minecraft.entity.decoration.ArmorStandEntity;
+import net.minecraft.client.network.OtherClientPlayerEntity;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
@@ -24,7 +24,7 @@ public final class SimpleEspClient implements ClientModInitializer {
     private static volatile boolean xrayEnabled = false;
     private static boolean freecamEnabled = false;
 
-    private static ArmorStandEntity freecamCamera;
+    private static OtherClientPlayerEntity freecamCamera;
     private static Vec3d freecamOrigin;
     private static Input savedPlayerInput;
     private static Input frozenPlayerInput;
@@ -58,7 +58,7 @@ public final class SimpleEspClient implements ClientModInitializer {
             }
 
             if (allowHotkeys && oDown && !oWasDown) {
-                refreshChestEsp(client);
+                hardRefreshChestEsp(client);
             }
 
             if (allowHotkeys && backslashDown && !backslashWasDown) {
@@ -91,11 +91,14 @@ public final class SimpleEspClient implements ClientModInitializer {
         WorldRenderEvents.END_MAIN.register(ThroughWallEspRenderer::render);
     }
 
-    private static void refreshChestEsp(MinecraftClient client) {
+    private static void hardRefreshChestEsp(MinecraftClient client) {
+        if (client.world != null) {
+            ThroughWallEspRenderer.hardRefreshChestScan(client.world, getEspOrigin());
+        }
         if (client.worldRenderer != null) {
             client.worldRenderer.reload();
         }
-        hud("Chest ESP: refreshed");
+        hud("Chest ESP: HARD REFRESH");
     }
 
     private static void toggleFreecam(MinecraftClient client) {
@@ -111,26 +114,28 @@ public final class SimpleEspClient implements ClientModInitializer {
             return;
         }
 
-        freecamCamera = new ArmorStandEntity(
-                client.world,
-                client.player.getX(),
-                client.player.getY(),
-                client.player.getZ()
-        );
+        freecamCamera = new OtherClientPlayerEntity(client.world, client.player.getGameProfile());
+        freecamCamera.setPosition(client.player.getX(), client.player.getY(), client.player.getZ());
         freecamCamera.setInvisible(true);
         freecamCamera.setNoGravity(true);
         freecamCamera.setYaw(client.player.getYaw());
         freecamCamera.setPitch(client.player.getPitch());
         freecamCamera.lastYaw = client.player.lastYaw;
         freecamCamera.lastPitch = client.player.lastPitch;
+        freecamCamera.setHeadYaw(client.player.getHeadYaw());
 
         freecamOrigin = freecamCamera.getEntityPos();
         savedPlayerInput = client.player.input;
         frozenPlayerInput = new Input();
         client.player.input = frozenPlayerInput;
-        client.setCameraEntity(freecamCamera);
+
         freecamEnabled = true;
-        hud("Freecam: ON (10 chunk limit)");
+        client.setCameraEntity(freecamCamera);
+        if (client.worldRenderer != null) {
+            client.worldRenderer.reload();
+        }
+        ThroughWallEspRenderer.hardRefreshChestScan(client.world, freecamCamera.getEntityPos());
+        hud("Freecam: ON (10 chunk client-loaded limit)");
     }
 
     private static void disableFreecam(MinecraftClient client) {
@@ -141,6 +146,12 @@ public final class SimpleEspClient implements ClientModInitializer {
             client.setCameraEntity(client.player);
         }
         clearFreecamState();
+        if (client.worldRenderer != null) {
+            client.worldRenderer.reload();
+        }
+        if (client.world != null && client.player != null) {
+            ThroughWallEspRenderer.hardRefreshChestScan(client.world, client.player.getEntityPos());
+        }
         hud("Freecam: OFF");
     }
 
@@ -195,15 +206,17 @@ public final class SimpleEspClient implements ClientModInitializer {
         freecamCamera.lastY = current.y;
         freecamCamera.lastZ = current.z;
         freecamCamera.setPosition(next.x, next.y, next.z);
+        freecamCamera.setVelocity(Vec3d.ZERO);
     }
 
     private static int keyDown(long window, int key) {
         return GLFW.glfwGetKey(window, key) == GLFW.GLFW_PRESS ? 1 : 0;
     }
 
-    public static void redirectLookToFreecam(double cursorDeltaX, double cursorDeltaY) {
+    public static void rotateFreecam(double cursorDeltaX, double cursorDeltaY) {
         if (freecamEnabled && freecamCamera != null) {
             freecamCamera.changeLookDirection(cursorDeltaX, cursorDeltaY);
+            freecamCamera.setHeadYaw(freecamCamera.getYaw());
         }
     }
 
