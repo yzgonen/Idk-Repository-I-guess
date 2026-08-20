@@ -7,8 +7,6 @@ import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ShulkerBoxBlock;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.input.Input;
-import net.minecraft.client.network.OtherClientPlayerEntity;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.Vec3d;
@@ -16,23 +14,13 @@ import org.lwjgl.glfw.GLFW;
 
 public final class SimpleEspClient implements ClientModInitializer {
     private static final MinecraftClient MC = MinecraftClient.getInstance();
-    private static final double FREECAM_MAX_DISTANCE = 10.0 * 16.0;
-    private static final double FREECAM_SPEED = 0.8;
-    private static final double FREECAM_BOOST_SPEED = 2.5;
 
     private static boolean playerEsp = true;
     private static volatile boolean xrayEnabled = false;
-    private static boolean freecamEnabled = false;
-
-    private static OtherClientPlayerEntity freecamCamera;
-    private static Vec3d freecamOrigin;
-    private static Input savedPlayerInput;
-    private static Input frozenPlayerInput;
 
     private static boolean pWasDown = false;
     private static boolean oWasDown = false;
     private static boolean backslashWasDown = false;
-    private static boolean equalWasDown = false;
 
     @Override
     public void onInitializeClient() {
@@ -41,15 +29,10 @@ public final class SimpleEspClient implements ClientModInitializer {
                 return;
             }
 
-            if ((client.world == null || client.player == null) && freecamEnabled) {
-                clearFreecamState();
-            }
-
             long window = client.getWindow().getHandle();
             boolean pDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_P) == GLFW.GLFW_PRESS;
             boolean oDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_O) == GLFW.GLFW_PRESS;
             boolean backslashDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_BACKSLASH) == GLFW.GLFW_PRESS;
-            boolean equalDown = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_EQUAL) == GLFW.GLFW_PRESS;
             boolean allowHotkeys = client.currentScreen == null;
 
             if (allowHotkeys && pDown && !pWasDown) {
@@ -63,161 +46,40 @@ public final class SimpleEspClient implements ClientModInitializer {
 
             if (allowHotkeys && backslashDown && !backslashWasDown) {
                 xrayEnabled = !xrayEnabled;
-                hud("X-Ray: " + (xrayEnabled ? "ON" : "OFF"));
+                if (client.world != null && client.player != null) {
+                    if (xrayEnabled) {
+                        XrayOverlayRenderer.hardRefresh(client.world, client.player.getEntityPos());
+                    } else {
+                        XrayOverlayRenderer.clear();
+                    }
+                }
                 if (client.worldRenderer != null) {
                     client.worldRenderer.reload();
                 }
+                hud("X-Ray: " + (xrayEnabled ? "ON" : "OFF"));
             }
 
-            if (allowHotkeys && equalDown && !equalWasDown) {
-                toggleFreecam(client);
-            }
-
-            if (freecamEnabled && client.player != null && freecamCamera != null) {
-                if (frozenPlayerInput != null && client.player.input != frozenPlayerInput) {
-                    client.player.input = frozenPlayerInput;
-                }
-                if (allowHotkeys) {
-                    tickFreecamMovement(window);
-                }
+            if (xrayEnabled && client.world != null && client.player != null) {
+                XrayOverlayRenderer.tickScan(client.world, client.player.getEntityPos());
             }
 
             pWasDown = pDown;
             oWasDown = oDown;
             backslashWasDown = backslashDown;
-            equalWasDown = equalDown;
         });
 
         WorldRenderEvents.END_MAIN.register(ThroughWallEspRenderer::render);
+        WorldRenderEvents.END_MAIN.register(XrayOverlayRenderer::render);
     }
 
     private static void hardRefreshChestEsp(MinecraftClient client) {
-        if (client.world != null) {
-            ThroughWallEspRenderer.hardRefreshChestScan(client.world, getEspOrigin());
+        if (client.world != null && client.player != null) {
+            ThroughWallEspRenderer.hardRefreshChestScan(client.world, client.player.getEntityPos());
         }
         if (client.worldRenderer != null) {
             client.worldRenderer.reload();
         }
         hud("Chest ESP: HARD REFRESH");
-    }
-
-    private static void toggleFreecam(MinecraftClient client) {
-        if (freecamEnabled) {
-            disableFreecam(client);
-        } else {
-            enableFreecam(client);
-        }
-    }
-
-    private static void enableFreecam(MinecraftClient client) {
-        if (client.world == null || client.player == null) {
-            return;
-        }
-
-        freecamCamera = new OtherClientPlayerEntity(client.world, client.player.getGameProfile());
-        freecamCamera.setPosition(client.player.getX(), client.player.getY(), client.player.getZ());
-        freecamCamera.setInvisible(true);
-        freecamCamera.setNoGravity(true);
-        freecamCamera.setYaw(client.player.getYaw());
-        freecamCamera.setPitch(client.player.getPitch());
-        freecamCamera.lastYaw = client.player.lastYaw;
-        freecamCamera.lastPitch = client.player.lastPitch;
-        freecamCamera.setHeadYaw(client.player.getHeadYaw());
-
-        freecamOrigin = freecamCamera.getEntityPos();
-        savedPlayerInput = client.player.input;
-        frozenPlayerInput = new Input();
-        client.player.input = frozenPlayerInput;
-
-        freecamEnabled = true;
-        client.setCameraEntity(freecamCamera);
-        if (client.worldRenderer != null) {
-            client.worldRenderer.reload();
-        }
-        ThroughWallEspRenderer.hardRefreshChestScan(client.world, freecamCamera.getEntityPos());
-        hud("Freecam: ON (10 chunk client-loaded limit)");
-    }
-
-    private static void disableFreecam(MinecraftClient client) {
-        if (client.player != null) {
-            if (savedPlayerInput != null) {
-                client.player.input = savedPlayerInput;
-            }
-            client.setCameraEntity(client.player);
-        }
-        clearFreecamState();
-        if (client.worldRenderer != null) {
-            client.worldRenderer.reload();
-        }
-        if (client.world != null && client.player != null) {
-            ThroughWallEspRenderer.hardRefreshChestScan(client.world, client.player.getEntityPos());
-        }
-        hud("Freecam: OFF");
-    }
-
-    private static void clearFreecamState() {
-        freecamEnabled = false;
-        freecamCamera = null;
-        freecamOrigin = null;
-        savedPlayerInput = null;
-        frozenPlayerInput = null;
-    }
-
-    private static void tickFreecamMovement(long window) {
-        if (freecamCamera == null || freecamOrigin == null) {
-            return;
-        }
-
-        double forwardInput = keyDown(window, GLFW.GLFW_KEY_W) - keyDown(window, GLFW.GLFW_KEY_S);
-        double strafeInput = keyDown(window, GLFW.GLFW_KEY_D) - keyDown(window, GLFW.GLFW_KEY_A);
-        double verticalInput = keyDown(window, GLFW.GLFW_KEY_SPACE)
-                - Math.max(keyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT), keyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT));
-
-        if (forwardInput == 0.0 && strafeInput == 0.0 && verticalInput == 0.0) {
-            return;
-        }
-
-        double yaw = Math.toRadians(freecamCamera.getYaw());
-        Vec3d forward = new Vec3d(-Math.sin(yaw), 0.0, Math.cos(yaw));
-        Vec3d right = new Vec3d(Math.cos(yaw), 0.0, Math.sin(yaw));
-        Vec3d movement = forward.multiply(forwardInput)
-                .add(right.multiply(strafeInput))
-                .add(0.0, verticalInput, 0.0);
-
-        if (movement.lengthSquared() <= 1.0E-8) {
-            return;
-        }
-
-        double speed = (GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT_CONTROL) == GLFW.GLFW_PRESS
-                || GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT_CONTROL) == GLFW.GLFW_PRESS)
-                ? FREECAM_BOOST_SPEED
-                : FREECAM_SPEED;
-        movement = movement.normalize().multiply(speed);
-
-        Vec3d current = freecamCamera.getEntityPos();
-        Vec3d next = current.add(movement);
-        Vec3d fromOrigin = next.subtract(freecamOrigin);
-        double distance = fromOrigin.length();
-        if (distance > FREECAM_MAX_DISTANCE) {
-            next = freecamOrigin.add(fromOrigin.multiply(FREECAM_MAX_DISTANCE / distance));
-        }
-
-        freecamCamera.lastX = current.x;
-        freecamCamera.lastY = current.y;
-        freecamCamera.lastZ = current.z;
-        freecamCamera.setPosition(next.x, next.y, next.z);
-        freecamCamera.setVelocity(Vec3d.ZERO);
-    }
-
-    private static int keyDown(long window, int key) {
-        return GLFW.glfwGetKey(window, key) == GLFW.GLFW_PRESS ? 1 : 0;
-    }
-
-    public static void rotateFreecam(double cursorDeltaX, double cursorDeltaY) {
-        if (freecamEnabled && freecamCamera != null) {
-            freecamCamera.changeLookDirection(cursorDeltaX, cursorDeltaY);
-            freecamCamera.setHeadYaw(freecamCamera.getYaw());
-        }
     }
 
     public static boolean isPlayerEspEnabled() {
@@ -232,14 +94,7 @@ public final class SimpleEspClient implements ClientModInitializer {
         return xrayEnabled;
     }
 
-    public static boolean isFreecamEnabled() {
-        return freecamEnabled;
-    }
-
     public static Vec3d getEspOrigin() {
-        if (freecamEnabled && freecamCamera != null) {
-            return freecamCamera.getEntityPos();
-        }
         if (MC.player != null) {
             return MC.player.getEntityPos();
         }
