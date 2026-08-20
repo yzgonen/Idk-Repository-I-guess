@@ -12,6 +12,7 @@ import net.minecraft.world.BlockRenderView;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
@@ -33,6 +34,11 @@ public abstract class BlockRenderManagerMixin {
         if (SimpleEspClient.isXrayEnabled() && !SimpleEspClient.shouldRenderInXray(state)) {
             ci.cancel();
         }
+    }
+
+    @ModifyVariable(method = "renderBlock", at = @At("HEAD"), argsOnly = true, ordinal = 0)
+    private boolean simpleesp$disableFaceCullingForXray(boolean cull) {
+        return SimpleEspClient.isXrayEnabled() ? false : cull;
     }
 
     @Inject(method = "renderFluid", at = @At("HEAD"), cancellable = true)
