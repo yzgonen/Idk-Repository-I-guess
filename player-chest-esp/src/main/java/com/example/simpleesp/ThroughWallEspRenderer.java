@@ -102,12 +102,12 @@ public final class ThroughWallEspRenderer {
 
     private static int renderPlayers(ClientWorld world, MatrixStack matrices, BufferBuilder buffer) {
         int count = 0;
-        Vec3d selfPos = MC.player.getEntityPos();
+        Vec3d scanOrigin = SimpleEspClient.getEspOrigin();
         for (PlayerEntity player : world.getPlayers()) {
             if (player == MC.player || player.isRemoved() || player.isSpectator()) {
                 continue;
             }
-            if (player.squaredDistanceTo(selfPos) > RANGE_SQ) {
+            if (player.squaredDistanceTo(scanOrigin) > RANGE_SQ) {
                 continue;
             }
 
@@ -128,8 +128,9 @@ public final class ThroughWallEspRenderer {
 
     private static int renderChests(ClientWorld world, MatrixStack matrices, BufferBuilder buffer) {
         int count = 0;
-        ChunkPos center = new ChunkPos(MC.player.getBlockPos());
-        Vec3d selfPos = MC.player.getEntityPos();
+        Vec3d scanOrigin = SimpleEspClient.getEspOrigin();
+        BlockPos originBlock = BlockPos.ofFloored(scanOrigin.x, scanOrigin.y, scanOrigin.z);
+        ChunkPos center = new ChunkPos(originBlock);
 
         for (int dx = -RANGE_CHUNKS; dx <= RANGE_CHUNKS; dx++) {
             for (int dz = -RANGE_CHUNKS; dz <= RANGE_CHUNKS; dz++) {
@@ -149,7 +150,7 @@ public final class ThroughWallEspRenderer {
                     double cx = pos.getX() + 0.5;
                     double cy = pos.getY() + 0.5;
                     double cz = pos.getZ() + 0.5;
-                    if (selfPos.squaredDistanceTo(cx, cy, cz) > RANGE_SQ) {
+                    if (scanOrigin.squaredDistanceTo(cx, cy, cz) > RANGE_SQ) {
                         continue;
                     }
 
