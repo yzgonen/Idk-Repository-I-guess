@@ -1,4 +1,4 @@
-name: Publish Player Chest ESP X-Ray JAR
+name: Publish Player Chest ESP JAR
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
         with:
           gradle-version: '9.5.1'
 
-      - name: Build Fabric JAR (ESP v1.7.0)
+      - name: Build Fabric JAR (ESP v1.8.0)
         id: build
         continue-on-error: true
         shell: bash
@@ -61,14 +61,14 @@ jobs:
           mkdir -p player-chest-esp/dist
           JAR=$(find player-chest-esp/build/libs -maxdepth 1 -type f -name 'player-chest-esp-*.jar' ! -name '*-sources.jar' | head -n 1)
           test -n "$JAR"
-          cp "$JAR" player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
+          cp "$JAR" player-chest-esp/dist/player-chest-esp-1.21.11.jar
 
       - name: Upload JAR artifact
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: Player-Chest-ESP-Advanced-XRay-1.21.11-v1.7.0
-          path: player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
+          name: Player-Chest-FullHeight-ESP-1.21.11-v1.8.0
+          path: player-chest-esp/dist/player-chest-esp-1.21.11.jar
           if-no-files-found: error
 
       - name: Commit release JAR on non-PR builds
@@ -80,11 +80,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git pull --rebase origin player-chest-esp-build
-          git add -- player-chest-esp/dist/player-chest-esp-xray-1.21.11.jar
+          git add -- player-chest-esp/dist/player-chest-esp-1.21.11.jar
           git add -u -- player-chest-esp/build-log.txt || true
           if git diff --cached --quiet; then
             echo 'JAR unchanged; nothing to commit.'
           else
-            git commit -m 'Build Player Chest ESP Advanced X-Ray 1.21.11 JAR'
+            git commit -m 'Build Player Chest full-height ESP 1.21.11 JAR'
             git push origin HEAD:player-chest-esp-build
           fi
