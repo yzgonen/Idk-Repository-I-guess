@@ -7,26 +7,11 @@ import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ShulkerBoxBlock;
-import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.ChestBlockEntity;
-import net.minecraft.block.entity.EnderChestBlockEntity;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.render.RenderLayers;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexRendering;
 import net.minecraft.client.util.InputUtil;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.client.world.ClientWorld;
-import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Box;
-import net.minecraft.util.math.ChunkPos;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.shape.VoxelShapes;
-import net.minecraft.world.chunk.WorldChunk;
 import org.lwjgl.glfw.GLFW;
 
 public final class SimpleEspClient implements ClientModInitializer {
@@ -39,9 +24,6 @@ public final class SimpleEspClient implements ClientModInitializer {
     private static boolean playerEsp = true;
     private static boolean chestEsp = true;
     private static volatile boolean xrayEnabled = false;
-
-    private static final int CHEST_SCAN_CHUNK_RADIUS = 8;
-    private static final double MAX_PLAYER_DISTANCE_SQ = 256.0 * 256.0;
 
     @Override
     public void onInitializeClient() {
@@ -84,27 +66,15 @@ public final class SimpleEspClient implements ClientModInitializer {
             }
         });
 
-        WorldRenderEvents.END_MAIN.register(context -> {
-            if (MC.world == null || MC.player == null || (!playerEsp && !chestEsp)) {
-                return;
-            }
+        WorldRenderEvents.END_MAIN.register(ThroughWallEspRenderer::render);
+    }
 
-            MatrixStack matrices = context.matrices();
-            VertexConsumer lines = context.consumers().getBuffer(RenderLayers.LINES_TRANSLUCENT);
-            Vec3d camera = MC.gameRenderer.getCamera().getCameraPos();
+    public static boolean isPlayerEspEnabled() {
+        return playerEsp;
+    }
 
-            matrices.push();
-            matrices.translate(-camera.x, -camera.y, -camera.z);
-
-            if (playerEsp) {
-                renderPlayers(MC.world, matrices, lines);
-            }
-            if (chestEsp) {
-                renderChests(MC.world, matrices, lines);
-            }
-
-            matrices.pop();
-        });
+    public static boolean isChestEspEnabled() {
+        return chestEsp;
     }
 
     public static boolean isXrayEnabled() {
@@ -137,50 +107,6 @@ public final class SimpleEspClient implements ClientModInitializer {
                 || state.isOf(Blocks.TRAPPED_CHEST)
                 || state.isOf(Blocks.ENDER_CHEST)
                 || state.isOf(Blocks.BARREL);
-    }
-
-    private static void renderPlayers(ClientWorld world, MatrixStack matrices, VertexConsumer lines) {
-        Vec3d selfPos = MC.player.getEntityPos();
-        for (PlayerEntity player : world.getPlayers()) {
-            if (player == MC.player || player.isRemoved() || player.isSpectator()) {
-                continue;
-            }
-            if (player.squaredDistanceTo(selfPos) > MAX_PLAYER_DISTANCE_SQ) {
-                continue;
-            }
-
-            drawBox(matrices, lines, player.getBoundingBox().expand(0.04), 0xFFFF4141);
-        }
-    }
-
-    private static void renderChests(ClientWorld world, MatrixStack matrices, VertexConsumer lines) {
-        ChunkPos center = new ChunkPos(MC.player.getBlockPos());
-
-        for (int dx = -CHEST_SCAN_CHUNK_RADIUS; dx <= CHEST_SCAN_CHUNK_RADIUS; dx++) {
-            for (int dz = -CHEST_SCAN_CHUNK_RADIUS; dz <= CHEST_SCAN_CHUNK_RADIUS; dz++) {
-                int chunkX = center.x + dx;
-                int chunkZ = center.z + dz;
-                if (!world.isChunkLoaded(chunkX, chunkZ)) {
-                    continue;
-                }
-
-                WorldChunk chunk = world.getChunk(chunkX, chunkZ);
-                for (BlockEntity blockEntity : chunk.getBlockEntities().values()) {
-                    if (!(blockEntity instanceof ChestBlockEntity) && !(blockEntity instanceof EnderChestBlockEntity)) {
-                        continue;
-                    }
-
-                    BlockPos pos = blockEntity.getPos();
-                    Box box = new Box(pos).expand(0.02);
-                    int color = blockEntity instanceof EnderChestBlockEntity ? 0xFFB450FF : 0xFFFFB923;
-                    drawBox(matrices, lines, box, color);
-                }
-            }
-        }
-    }
-
-    private static void drawBox(MatrixStack matrices, VertexConsumer lines, Box box, int color) {
-        VertexRendering.drawOutline(matrices, lines, VoxelShapes.cuboid(box), 0.0, 0.0, 0.0, color, 2.0F);
     }
 
     private static void hud(String message) {
