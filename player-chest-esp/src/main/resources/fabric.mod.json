@@ -3,7 +3,7 @@
   "id": "simpleesp",
   "version": "${version}",
   "name": "Player + Chest ESP + X-Ray",
-  "description": "Client-side player/chest ESP and toggleable X-Ray for Minecraft 1.21.1.",
+  "description": "Client-side player/chest ESP and toggleable X-Ray for Minecraft 1.21.11.",
   "authors": ["OpenAI"],
   "environment": "client",
   "entrypoints": {
@@ -15,8 +15,8 @@
     "simpleesp.mixins.json"
   ],
   "depends": {
-    "fabricloader": ">=0.16.0",
-    "minecraft": "~1.21.1",
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~1.21.11",
     "java": ">=21",
     "fabric-api": "*"
   }
