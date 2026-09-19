@@ -36,3 +36,5 @@ jobs:
         with:
           name: RLTAS-BakkesMod
           path: out/*
+
+# trigger build
