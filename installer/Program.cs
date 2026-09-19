@@ -10,7 +10,11 @@ internal static class Program {
  [STAThread] static void Main() {
   Application.EnableVisualStyles();
   string source=Path.Combine(AppContext.BaseDirectory,"CodeRed.dll");
-  if(!File.Exists(source)){MessageBox.Show("CodeRed.dll is missing next to RLTAS-Setup.exe.","RLTAS Setup",MessageBoxButtons.OK,MessageBoxIcon.Error);return;}
+  if(!File.Exists(source)){
+   using var dllPicker=new OpenFileDialog{Title="Select the RLTAS CodeRed.dll built with this installer",Filter="CodeRed module (CodeRed.dll)|CodeRed.dll|DLL files (*.dll)|*.dll"};
+   if(dllPicker.ShowDialog()!=DialogResult.OK)return;
+   source=dllPicker.FileName;
+  }
   string install=Registry.CurrentUser.OpenSubKey(@"CodeRedModding")?.GetValue("InstallPath") as string ?? "";
   if(string.IsNullOrWhiteSpace(install)||!Directory.Exists(install)){
    using var dlg=new FolderBrowserDialog{Description="Select your CodeRed installation folder"};
