@@ -24,9 +24,12 @@ public:
  static double Now(){ using namespace std::chrono; return duration<double>(steady_clock::now().time_since_epoch()).count(); }
 
  static std::filesystem::path RecordingDirectory(){
-  if(const char* profile=std::getenv("USERPROFILE")){
-   return std::filesystem::path(profile)/"Documents"/"RLTAS"/"Recordings";
+  char* profile=nullptr; size_t len=0;
+  if(_dupenv_s(&profile,&len,"USERPROFILE")==0 && profile){
+   std::filesystem::path dir=std::filesystem::path(profile)/"Documents"/"RLTAS"/"Recordings";
+   free(profile); return dir;
   }
+  if(profile) free(profile);
   return std::filesystem::current_path()/"RLTAS"/"Recordings";
  }
 
