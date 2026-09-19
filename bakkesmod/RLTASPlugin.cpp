@@ -2,6 +2,7 @@
 #include "imgui/imgui.h"
 #include <algorithm>
 #include <fstream>
+#include <ctime>
 #include <cmath>
 #include <cstdint>
 
