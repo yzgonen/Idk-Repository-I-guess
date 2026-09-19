@@ -14,7 +14,8 @@ static LRESULT CALLBACK RLTAS_MenuProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){
   status+=g_TAS.recording?L"Recording: ON\r\n":L"Recording: OFF\r\n";
   status+=g_TAS.saved.valid?L"Saved state: READY\r\n":L"Saved state: EMPTY\r\n";
   status+=L"Gravity level: "+std::to_wstring(g_TAS.gravityLevel)+L"\r\n";
-  status+=L"Collision/Bounce level: "+std::to_wstring(g_TAS.bounceLevel)+L"\r\n\r\n";
+  status+=L"Collision/Bounce level: "+std::to_wstring(g_TAS.bounceLevel)+L"\r\n";
+  status+=L"Recordings: "+RLTAS::Core::RecordingDirectory().wstring()+L"\r\n\r\n";
   status+=L"F9  Open / close menu\r\n";
   status+=L"5   Start / stop + save recording\r\n";
   status+=L"9   Cancel recording\r\n";
@@ -38,8 +39,13 @@ static void EnsureMenu(){
  RegisterClassW(&wc);
  g_MenuWnd=CreateWindowExW(WS_EX_TOPMOST|WS_EX_TOOLWINDOW,wc.lpszClassName,L"RLTAS",WS_OVERLAPPED|WS_CAPTION|WS_SYSMENU,80,80,430,390,nullptr,nullptr,inst,nullptr);
 }
+static void PumpMenuMessages(){
+ if(!g_MenuWnd)return;
+ MSG msg{};
+ while(PeekMessageW(&msg,g_MenuWnd,0,0,PM_REMOVE)){TranslateMessage(&msg);DispatchMessageW(&msg);}
+}
 static bool edge(int vk){static SHORT old[256]{};SHORT n=GetAsyncKeyState(vk);bool hit=(n&0x8000)&&!(old[vk]&0x8000);old[vk]=n;return hit;}
-void RLTAS_HotkeyTick(){g_TAS.Tick();if(edge(VK_F9)){g_MenuOpen=!g_MenuOpen;EnsureMenu();ShowWindow(g_MenuWnd,g_MenuOpen?SW_SHOW:SW_HIDE);}if(g_MenuWnd&&g_MenuOpen)InvalidateRect(g_MenuWnd,nullptr,FALSE);if(!g_TAS.enabled)return;if(edge('R'))g_TAS.SaveNow();if(edge(VK_XBUTTON2))g_TAS.RestoreSaved();if(edge(VK_XBUTTON1))g_TAS.RewindOneSecond();if(edge('6')){g_TAS.gravityLevel=std::max(-1,g_TAS.gravityLevel-1);g_TAS.ApplyPhysics();}if(edge('7')){g_TAS.gravityLevel=std::min(2,g_TAS.gravityLevel+1);g_TAS.ApplyPhysics();}if(edge('F')){g_TAS.bounceLevel=std::min(2,g_TAS.bounceLevel+1);g_TAS.ApplyPhysics();}if(edge('G')){g_TAS.bounceLevel=std::max(-1,g_TAS.bounceLevel-1);g_TAS.ApplyPhysics();}if(edge('8'))g_TAS.ResetPhysics();if(edge('5'))g_TAS.ToggleRecording();if(edge('9'))g_TAS.CancelRecording();}
+void RLTAS_HotkeyTick(){g_TAS.Tick();if(edge(VK_F9)){g_MenuOpen=!g_MenuOpen;EnsureMenu();ShowWindow(g_MenuWnd,g_MenuOpen?SW_SHOW:SW_HIDE);}if(g_MenuWnd&&g_MenuOpen)InvalidateRect(g_MenuWnd,nullptr,FALSE);PumpMenuMessages();if(!g_TAS.enabled)return;if(edge('R'))g_TAS.SaveNow();if(edge(VK_XBUTTON2))g_TAS.RestoreSaved();if(edge(VK_XBUTTON1))g_TAS.RewindOneSecond();if(edge('6')){g_TAS.gravityLevel=std::max(-1,g_TAS.gravityLevel-1);g_TAS.ApplyPhysics();}if(edge('7')){g_TAS.gravityLevel=std::min(2,g_TAS.gravityLevel+1);g_TAS.ApplyPhysics();}if(edge('F')){g_TAS.bounceLevel=std::min(2,g_TAS.bounceLevel+1);g_TAS.ApplyPhysics();}if(edge('G')){g_TAS.bounceLevel=std::max(-1,g_TAS.bounceLevel-1);g_TAS.ApplyPhysics();}if(edge('8'))g_TAS.ResetPhysics();if(edge('5'))g_TAS.ToggleRecording();if(edge('9'))g_TAS.CancelRecording();}
 
 void RLTAS_CanvasDraw(UCanvas* canvas){
  if(!canvas||!g_MenuOpen)return;
