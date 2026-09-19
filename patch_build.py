@@ -41,3 +41,8 @@ x=x[:start]+new+x[end:];p.write_text(x)
 p=Path("work/Components/Components/Events.cpp");x=p.read_text();x=x.replace("function->Func.Dummy","function->Func");p.write_text(x)
 # AActor in this RLSDK does not expose the placeholder ConsoleCommand helper. This framework feature is not used by RLTAS hotkeys, so make UnrealCommand log-only instead of blocking the build.
 p=Path("work/Components/Components/Manager.cpp");x=p.read_text();x=x.replace('defaultActor->ConsoleCommand(FString(unrealCommand.c_str()));','Console.Warning("[Manager Component] UnrealCommand unavailable in this RLSDK build: " + unrealCommand);');p.write_text(x)
+
+# Wire RLTAS hotkeys/state capture into CodeRed's HUD PostRender tick.
+p=Path("work/Components/Components/Events.cpp");x=p.read_text();x=x.replace('#include "pch.hpp"', '#include "pch.hpp"\nextern void RLTAS_HotkeyTick();',1) if '#include "pch.hpp"' in x and 'extern void RLTAS_HotkeyTick();' not in x else x
+x=x.replace('Manager.OnTick(); // Required to process commands from different threads or commands with async delays.','Manager.OnTick(); // Required to process commands from different threads or commands with async delays.\n\t\t\tRLTAS_HotkeyTick(); // RLTAS Freeplay runtime tick.')
+p.write_text(x)
