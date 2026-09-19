@@ -1,0 +1,40 @@
+name: Build RLTAS BakkesMod
+on:
+  workflow_dispatch:
+  push:
+    branches: [ rltas-bakkesmod ]
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get BakkesMod SDK
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/bakkesmodorg/BakkesModSDK.git bakkesmodsdk
+      - name: Build x64 Release
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          set BAKKESMODSDK=%CD%\bakkesmodsdk
+          msbuild bakkesmod\RLTASPlugin.vcxproj /m /p:Configuration=Release /p:Platform=x64
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          $dll=Get-ChildItem bakkesmod -Recurse -Filter RLTASPlugin.dll | Select-Object -First 1
+          if(-not $dll){throw "RLTASPlugin.dll not found"}
+          Copy-Item $dll.FullName out/RLTASPlugin.dll
+          @"
+          Install:
+          1. Copy RLTASPlugin.dll to %APPDATA%\bakkesmod\bakkesmod\plugins\
+          2. In BakkesMod F6 console: plugin load RLTASPlugin
+          3. Enter Freeplay and press F9.
+          Freeplay only.
+          "@ | Set-Content out/INSTALL.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RLTAS-BakkesMod
+          path: out/*
+
+# trigger build
