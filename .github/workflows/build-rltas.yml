@@ -8,43 +8,28 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  bakkesmod-build:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch exact CodeRed and RLSDK
+      - name: Get BakkesMod SDK
         shell: pwsh
-        run: |
-          git clone https://github.com/CodeRedModding/CodeRed-Template.git work
-          cd work; git checkout 64198bda43808265ba5ed98eed9fc794b2e7a86f; cd ..
-          git clone https://github.com/smallest-cock/RLSDK.git sdk
-          cd sdk; git checkout 7ec01aa23e8ce3b91436847c973dc7acb15a8613; cd ..
-          Copy-Item -Recurse -Force sdk/RLSDK work/RLSDK
-          Copy-Item -Force src/RLTAS_CORE.hpp work/RLTAS_CORE.hpp
-          Copy-Item -Force src/RLTAS_HOTKEYS.cpp work/RLTAS_HOTKEYS.cpp
-      - name: Patch project
-        run: python patch_build.py
-      - name: Build x64 Release
+        run: git clone --depth 1 https://github.com/bakkesmodorg/BakkesModSDK.git bakkesmodsdk
+      - name: Build RLTAS BakkesMod x64 Release
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
-          msbuild work\CodeRedTemplate.sln /m /p:Configuration=Release /p:Platform=x64
-      - name: Collect output
+          set BAKKESMODSDK=%CD%\bakkesmodsdk
+          msbuild bakkesmod\RLTASPlugin.vcxproj /m /p:Configuration=Release /p:Platform=x64
+      - name: Collect DLL
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force out | Out-Null
-          $dll = Get-ChildItem work -Recurse -Filter CodeRed.dll | Select-Object -First 1
-          if (-not $dll) { throw "CodeRed.dll build output not found" }
-          Copy-Item $dll.FullName -Destination out/CodeRed.dll
-          Copy-Item $dll.FullName -Destination out/RLTAS.dll
-      - name: Build one-click installer
-        shell: pwsh
-        run: |
-          Copy-Item out/CodeRed.dll installer/CodeRed.dll
-          dotnet publish installer/RLTAS-Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o installer-publish
-          Copy-Item installer-publish/RLTAS-Setup.exe out/RLTAS-Setup.exe
-      - name: Upload Windows build
+          $dll = Get-ChildItem . -Recurse -Filter RLTASPlugin.dll | Where-Object { $_.FullName -notlike "*bakkesmodsdk*" } | Select-Object -First 1
+          if (-not $dll) { throw "RLTASPlugin.dll build output not found" }
+          Copy-Item $dll.FullName out/RLTASPlugin.dll
+      - name: Upload BakkesMod plugin
         uses: actions/upload-artifact@v4
         with:
-          name: RLTAS-Windows-Build
-          path: out/*
+          name: RLTAS-BakkesMod
+          path: out/RLTASPlugin.dll
