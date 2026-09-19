@@ -2,6 +2,8 @@ from pathlib import Path
 p=Path("work/CodeRedTemplate.vcxproj")
 x=p.read_text(encoding="utf-8-sig")
 x=x.replace("<PlatformToolset>v145</PlatformToolset>","<PlatformToolset>v143</PlatformToolset>")
+# CodeRed Launcher loads <InstallPath>\\DLL\\CodeRed.dll. Build RLTAS as that module name.
+x=x.replace("<RootNamespace>CodeRedTemplate</RootNamespace>","<RootNamespace>CodeRedTemplate</RootNamespace>\n    <TargetName>CodeRed</TargetName>",1)
 x=x.replace("PlaceholderSDK\\GameDefines.cpp","RLSDK\\GameDefines.cpp").replace("PlaceholderSDK\\GameDefines.hpp","RLSDK\\GameDefines.hpp").replace("PlaceholderSDK\\SdkHeaders.hpp","RLSDK\\SdkHeaders.hpp")
 needle='<ClCompile Include="RLSDK\\GameDefines.cpp" />'
 extra='''<ClCompile Include="RLTAS_HOTKEYS.cpp" />
