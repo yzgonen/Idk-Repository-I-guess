@@ -33,7 +33,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force out | Out-Null
-          Get-ChildItem work -Recurse -Filter CodeRedTemplate.dll | Copy-Item -Destination out
+          $dll = Get-ChildItem work -Recurse -Filter CodeRedTemplate.dll | Select-Object -First 1
+          Copy-Item $dll.FullName -Destination out/RLTAS.dll
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
         with:
