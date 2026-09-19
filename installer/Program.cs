@@ -9,12 +9,13 @@ using System.Windows.Forms;
 internal static class Program {
  [STAThread] static void Main() {
   Application.EnableVisualStyles();
-  string source=Path.Combine(AppContext.BaseDirectory,"CodeRed.dll");
-  if(!File.Exists(source)){
-   using var dllPicker=new OpenFileDialog{Title="Select the RLTAS CodeRed.dll built with this installer",Filter="CodeRed module (CodeRed.dll)|CodeRed.dll|DLL files (*.dll)|*.dll"};
-   if(dllPicker.ShowDialog()!=DialogResult.OK)return;
-   source=dllPicker.FileName;
-  }
+  string source=Path.Combine(Path.GetTempPath(),"RLTAS-"+Guid.NewGuid().ToString("N")+"-CodeRed.dll");
+  try {
+   using var payload=typeof(Program).Assembly.GetManifestResourceStream("RLTAS.Payload.CodeRed.dll");
+   if(payload is null) throw new IOException("Embedded RLTAS payload is missing.");
+   using var output=File.Create(source);
+   payload.CopyTo(output);
+  } catch(Exception ex){MessageBox.Show("Could not unpack RLTAS:\n"+ex.Message,"RLTAS Setup",MessageBoxButtons.OK,MessageBoxIcon.Error);return;}
   string install=Registry.CurrentUser.OpenSubKey(@"CodeRedModding")?.GetValue("InstallPath") as string ?? "";
   if(string.IsNullOrWhiteSpace(install)||!Directory.Exists(install)){
    using var dlg=new FolderBrowserDialog{Description="Select your CodeRed installation folder"};
@@ -29,6 +30,7 @@ internal static class Program {
    if(!SHA256.HashData(File.ReadAllBytes(source)).SequenceEqual(SHA256.HashData(File.ReadAllBytes(temp))))throw new IOException("SHA-256 verification failed.");
    File.Move(temp,dest,true);
    MessageBox.Show("RLTAS installed successfully.\n\nUse CodeRed only in the offline / Freeplay setup intended for this build.","RLTAS Setup",MessageBoxButtons.OK,MessageBoxIcon.Information);
+   try { File.Delete(source); } catch { }
   } catch(Exception ex){MessageBox.Show("Installation failed:\n"+ex.Message,"RLTAS Setup",MessageBoxButtons.OK,MessageBoxIcon.Error);}
  }
 }
