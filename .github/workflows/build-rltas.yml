@@ -37,6 +37,12 @@ jobs:
           if (-not $dll) { throw "CodeRed.dll build output not found" }
           Copy-Item $dll.FullName -Destination out/CodeRed.dll
           Copy-Item $dll.FullName -Destination out/RLTAS.dll
+      - name: Build one-click installer
+        shell: pwsh
+        run: |
+          Copy-Item out/CodeRed.dll installer/CodeRed.dll
+          dotnet publish installer/RLTAS-Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o installer-publish
+          Copy-Item installer-publish/RLTAS-Setup.exe out/RLTAS-Setup.exe
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
         with:
