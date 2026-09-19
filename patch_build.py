@@ -36,3 +36,8 @@ new='''\tbool CoreComponent::FindGlobals()
 \t}
 '''
 x=x[:start]+new+x[end:];p.write_text(x)
+
+# RLSDK compatibility: UFunction::Func is void*, not placeholder wrapper with .Dummy.
+p=Path("work/Components/Components/Events.cpp");x=p.read_text();x=x.replace("function->Func.Dummy","function->Func");p.write_text(x)
+# AActor in this RLSDK does not expose the placeholder ConsoleCommand helper. This framework feature is not used by RLTAS hotkeys, so make UnrealCommand log-only instead of blocking the build.
+p=Path("work/Components/Components/Manager.cpp");x=p.read_text();x=x.replace('defaultActor->ConsoleCommand(FString(unrealCommand.c_str()));','Console.Warning("[Manager Component] UnrealCommand unavailable in this RLSDK build: " + unrealCommand);');p.write_text(x)
