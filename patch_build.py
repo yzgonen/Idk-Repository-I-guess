@@ -19,8 +19,8 @@ extra='''<ClCompile Include="RLTAS_HOTKEYS.cpp" />
 x=x.replace(needle,needle+"\n    "+extra)
 x=x.replace('<ClInclude Include="Types.hpp" />','<ClInclude Include="RLTAS_CORE.hpp" />\n    <ClInclude Include="Types.hpp" />')
 p.write_text(x,encoding="utf-8")
-p=Path("work/pch.hpp");x=p.read_text();x=x.replace("#define WALKTHROUGH","").replace('#include "PlaceholderSDK/SdkHeaders.hpp"','#include "RLSDK/SdkHeaders.hpp"');p.write_text(x)
-p=Path("work/Components/Components/Manager.cpp");x=p.read_text();x=x.replace("defaultActor->ConsoleCommand(unrealCommand);",'defaultActor->ConsoleCommand(FString::create(unrealCommand), false);');p.write_text(x)
+p=Path("work/pch.hpp");x=p.read_text();x=x.replace("#define WALKTHROUGH","").replace('#include "PlaceHolderSDK/SdkHeaders.hpp"','#include "RLSDK/SdkHeaders.hpp"').replace('#include "PlaceholderSDK/SdkHeaders.hpp"','#include "RLSDK/SdkHeaders.hpp"');p.write_text(x)
+p=Path("work/Components/Components/Manager.cpp");x=p.read_text();x=x.replace("defaultActor->ConsoleCommand(unrealCommand);",'defaultActor->ConsoleCommand(FString(unrealCommand.c_str()));');p.write_text(x)
 p=Path("work/Components/Components/Core.cpp");x=p.read_text()
 start=x.index("\tbool CoreComponent::FindGlobals()")
 end=x.index("\n\tbool CoreComponent::AreGlobalsValid()",start)
@@ -29,8 +29,8 @@ new='''\tbool CoreComponent::FindGlobals()
 \t\tif (!UObject::GObjObjects() || !FName::Names())
 \t\t{
 \t\t\tconst uintptr_t base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
-\t\t\tGObjects = reinterpret_cast<TArray<UObject*>*>(base + GOBJECTS_OFFSET);
-\t\t\tGNames = reinterpret_cast<TArray<FNameEntry*>*>(base + GNAMES_OFFSET);
+\t\t\tGObjects = reinterpret_cast<TArray<UObject*>*>(base + static_cast<uintptr_t>(0x02418190));
+\t\t\tGNames = reinterpret_cast<TArray<FNameEntry*>*>(base + static_cast<uintptr_t>(0x02418148));
 \t\t}
 \t\treturn AreGlobalsValid();
 \t}
