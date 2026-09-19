@@ -33,8 +33,8 @@ public:
   return std::filesystem::current_path()/"RLTAS"/"Recordings";
  }
 
- static float GravityScale(int l){ switch(l){case -1:return .5f;case 1:return 1.5f;case 2:return 2.f;default:return 1.f;} }
- static float BounceScale(int l){ switch(l){case -2:return .25f;case -1:return .5f;case 1:return 1.5f;case 2:return 2.f;default:return 1.f;} }
+ static float GravityScale(int l){ switch(l){case -1:return .5f;case 1:return 2.f;case 2:return 3.f;default:return 1.f;} }
+ static float BounceScale(int l){ switch(l){case -1:return .5f;case 1:return 1.5f;case 2:return 2.f;default:return 1.f;} }
 
  bool GetActors(APlayerController_TA*& pc, ACar_TA*& car, ABall_TA*& ball, AGameEvent_Soccar_TA*& game){
   pc=static_cast<APlayerController_TA*>(USeqAct_GetEffectIntensity_TA::GetPrimaryPlayerController());
