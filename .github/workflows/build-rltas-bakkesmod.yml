@@ -2,7 +2,7 @@ name: Build RLTAS BakkesMod
 on:
   workflow_dispatch:
   push:
-    branches: [ rltas-bakkesmod ]
+    branches: [ main, rltas-bakkesmod ]
 jobs:
   build:
     runs-on: windows-2022
