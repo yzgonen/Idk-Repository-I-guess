@@ -44,7 +44,6 @@ private:
     bool hasPendingStart_ = false;
     size_t startFrameIndex_ = 0;
     bool completePlayback_ = false;
-    float shotGameSpeed_ = 1.0f;
     std::string status_ = "Ready";
     std::string selectedFile_;
     std::vector<std::string> tasFiles_;
