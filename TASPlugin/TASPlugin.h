@@ -6,6 +6,7 @@
 #include <mutex>
 #include <filesystem>
 #include <cstdint>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -38,15 +39,18 @@ private:
     bool hasStart_ = false;
     bool hasPendingStart_ = false;
     std::string status_ = "Ready";
-    std::string selectedFile_ = "shot.tas";
-    char fileInput_[128] = "shot.tas";
-    char bindInput_[8][32] = {{"F7"}, {"F8"}, {"Mouse4"}, {"Mouse5"}, {"="}, {"B"}, {"T"}, {"Z"}};
+    std::string selectedFile_;
+    std::vector<std::string> tasFiles_;
+    char newTasNameInput_[128] = "shot";
+    char bindInput_[5][32] = {{"F7"}, {"F8"}, {"Mouse4"}, {"B"}, {"T"}};
+    std::atomic_bool newTasDialogRequested_{false};
     int bindCaptureIndex_ = -1;
     bool keyWasDown_[256]{};
     float playbackSpeed_ = 1.0f;
     float playbackFrameAccumulator_ = 0.0f;
-    uint64_t inputHookCalls_ = 0;
-    uint64_t offlineInputTicks_ = 0;
+    ControllerInput playbackBaselineInput_{};
+    ControllerInput playbackLastInput_{};
+    bool playbackBaselineSet_ = false;
     float gameSpeed_ = 1.0f;
     bool topBinAim_ = false;
     float ballSpeedMultiplier_ = 1.0f;
@@ -58,17 +62,16 @@ private:
     void OnSetVehicleInput(void* params);
     void ApplyBallOptions();
     void RegisterCommands();
-    void NewShot();
+    void RequestNewShotDialog();
+    void NewShot(const std::string& name);
+    bool CloseCurrentShot();
     void StartOrReplay();
-    void Stop();
-    void UpdateStartPoint();
-    void Undo();
-    void CyclePlaybackSpeed();
     void ToggleBallSpeed();
     void ToggleTopBinAim();
     void CaptureBindInput();
-    void SaveFile(const std::string& name);
+    bool SaveFile(const std::string& name);
     void LoadFile(const std::string& name);
+    void RefreshFileList();
     void SetBind(int index, const std::string& key);
     static std::string KeyNameFromVirtualKey(int virtualKey);
     bool IsSafeFileName(const std::string& name) const;
