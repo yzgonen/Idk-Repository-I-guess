@@ -15,7 +15,7 @@
 BAKKESMOD_PLUGIN(TASPlugin, "TAS Plugin", "2.0.0", PLUGINTYPE_FREEPLAY)
 
 namespace {
-constexpr const char* kMoveEvent = "Function TAGame.PlayerController_TA.PlayerMove";
+constexpr const char* kInputEvent = "Function TAGame.Car_TA.SetVehicleInput";
 constexpr const char* kBindCommands[] = {
     "tasplugin_new", "tasplugin_play", "tasplugin_stop", "tasplugin_update_start",
     "tasplugin_playback_speed", "tasplugin_toggle_ball_speed", "tasplugin_toggle_topbin_aim", "tasplugin_undo"
@@ -62,14 +62,13 @@ void TASPlugin::onLoad() {
         bindInput_[i][sizeof(bindInput_[i]) - 1] = '\0';
         cvarManager->executeCommand("bind " + key + " \"" + kBindCommands[i] + "\"", false);
     }
-    gameWrapper->HookEvent(kMoveEvent, [this](std::string) { ApplyPlaybackInput(); });
-    gameWrapper->HookEventPost(kMoveEvent, [this](std::string) { OnPlayerMove(); });
+    gameWrapper->HookEventWithCaller<CarWrapper>(kInputEvent,
+        [this](CarWrapper, void* params, std::string) { OnSetVehicleInput(params); });
     SetStatus("Ready — load a TAS or create a new shot in offline Free Play.");
 }
 
 void TASPlugin::onUnload() {
-    gameWrapper->UnhookEvent(kMoveEvent);
-    gameWrapper->UnhookEventPost(kMoveEvent);
+    gameWrapper->UnhookEvent(kInputEvent);
     std::lock_guard<std::mutex> lock(mutex_);
     mode_ = Mode::Idle;
 }
@@ -251,18 +250,39 @@ void TASPlugin::ToggleTopBinAim() {
     cvarManager->executeCommand("writeconfig", false);
 }
 
-void TASPlugin::OnPlayerMove() {
-    if (!IsOffline()) return;
-    PlayerControllerWrapper controller = gameWrapper->GetPlayerController();
-    if (controller.IsNull()) return;
+void TASPlugin::OnSetVehicleInput(void* params) {
+    if (params == nullptr) return;
+    auto* input = static_cast<ControllerInput*>(params);
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        ++playerMoveTicks_;
+        ++inputHookCalls_;
+    }
+    if (!IsOffline()) return;
+
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++offlineInputTicks_;
         if (mode_ == Mode::Recording) {
-            frames_.push_back({controller.GetVehicleInput()});
+            frames_.push_back({*input});
+        } else if (mode_ == Mode::Playing) {
+            playbackFrameAccumulator_ += playbackSpeed_;
+            const size_t steps = static_cast<size_t>(playbackFrameAccumulator_);
+            if (steps > 0) {
+                playbackFrameAccumulator_ -= static_cast<float>(steps);
+                const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
+                *input = frames_[lastFrame].input;
+                playhead_ = lastFrame + 1;
+                if (playhead_ >= frames_.size()) {
+                    mode_ = Mode::Idle;
+                    status_ = "Playback finished.";
+                }
+            }
         }
     }
+    ApplyBallOptions();
+}
 
+void TASPlugin::ApplyBallOptions() {
     BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
     if (ball.IsNull()) return;
     Vector velocity = ball.GetVelocity();
@@ -292,40 +312,6 @@ void TASPlugin::OnPlayerMove() {
         }
     }
     previousBallVelocity_ = velocity;
-}
-
-void TASPlugin::ApplyPlaybackInput() {
-    if (!IsOffline()) return;
-    PlayerControllerWrapper controller = gameWrapper->GetPlayerController();
-    if (controller.IsNull()) return;
-    ControllerInput input{};
-    bool apply = false;
-    bool finished = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (mode_ != Mode::Playing) return;
-        playbackFrameAccumulator_ += playbackSpeed_;
-        const size_t steps = static_cast<size_t>(playbackFrameAccumulator_);
-        if (steps == 0) return;
-        playbackFrameAccumulator_ -= static_cast<float>(steps);
-        if (playhead_ >= frames_.size()) {
-            mode_ = Mode::Idle;
-            status_ = "Playback finished.";
-            finished = true;
-        } else {
-            const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
-            input = frames_[lastFrame].input;
-            playhead_ = lastFrame + 1;
-            apply = true;
-            if (playhead_ >= frames_.size()) {
-                mode_ = Mode::Idle;
-                finished = true;
-                status_ = "Playback finished.";
-            }
-        }
-    }
-    if (apply) controller.SetVehicleInput(input);
-    if (finished && !apply) controller.SetVehicleInput(ControllerInput{});
 }
 
 bool TASPlugin::IsSafeFileName(const std::string& name) const {
@@ -508,7 +494,10 @@ void TASPlugin::RenderSettings() {
             if (ImGui::Button("Undo last frame")) cvarManager->executeCommand("tasplugin_undo", false);
             ImGui::TextDisabled("New TAS stores the current car and ball state. Stop, then save from Files.");
             std::lock_guard<std::mutex> lock(mutex_);
-            ImGui::Text("Frames: %d  |  Game movement ticks: %llu", static_cast<int>(frames_.size()), static_cast<unsigned long long>(playerMoveTicks_));
+            ImGui::Text("Frames: %d  |  SetVehicleInput hooks: %llu  |  Offline ticks: %llu",
+                static_cast<int>(frames_.size()),
+                static_cast<unsigned long long>(inputHookCalls_),
+                static_cast<unsigned long long>(offlineInputTicks_));
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Files")) {
@@ -568,7 +557,7 @@ void TASPlugin::RenderSettings() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("About")) {
-            ImGui::TextWrapped("TASPlugin records controller inputs on the PlayerMove event and replays them from a saved car and ball start state. It is restricted to offline Free Play and Custom Training.");
+            ImGui::TextWrapped("TASPlugin records and replays controller inputs through Rocket League's SetVehicleInput physics hook and restores the saved car and ball start state. It is restricted to offline Free Play and Custom Training.");
             ImGui::TextWrapped("This is an independent plugin implementation. Files made by the original TAS plugin are not compatible.");
             ImGui::EndTabItem();
         }
