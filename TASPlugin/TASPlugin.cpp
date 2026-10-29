@@ -39,9 +39,12 @@ bool ReadActor(std::istream& in, TASPlugin::ActorState& a) {
 }
 
 void TASPlugin::onLoad() {
-    cvarManager->registerCvar("tasplugin_gamespeed", "1.0", "Rocket League game speed", true, true, 0.5f, true, 2.0f).bindTo(&gameSpeed_);
-    cvarManager->registerCvar("tasplugin_ball_speed", "1.0", "Ball velocity multiplier", true, true, 1.0f, true, 2.0f).bindTo(&ballSpeedMultiplier_);
-    cvarManager->registerCvar("tasplugin_topbin_aim", "0", "Offline top-bin aim assist", true, true, 0, true, 1).bindTo(&topBinAim_);
+    cvarManager->registerCvar("tasplugin_gamespeed", "1.0", "Rocket League game speed", true, true, 0.5f, true, 2.0f);
+    cvarManager->registerCvar("tasplugin_ball_speed", "1.0", "Ball velocity multiplier", true, true, 1.0f, true, 2.0f);
+    cvarManager->registerCvar("tasplugin_topbin_aim", "0", "Offline top-bin aim assist", true, true, 0, true, 1);
+    gameSpeed_ = cvarManager->getCvar("tasplugin_gamespeed").getFloatValue();
+    ballSpeedMultiplier_ = cvarManager->getCvar("tasplugin_ball_speed").getFloatValue();
+    topBinAim_ = cvarManager->getCvar("tasplugin_topbin_aim").getBoolValue();
     const char* defaultBinds[] = {"F7", "F8", "F9", "F10"};
     for (int i = 0; i < 4; ++i) {
         const std::string cvar = "tasplugin_bind_" + std::to_string(i);
@@ -75,8 +78,8 @@ bool TASPlugin::IsOffline() const {
 
 bool TASPlugin::CaptureState(ActorState& carState, ActorState& ballState) const {
     if (!IsOffline()) return false;
-    const CarWrapper car = gameWrapper->GetLocalCar();
-    const BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
+    CarWrapper car = gameWrapper->GetLocalCar();
+    BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
     if (car.IsNull() || ball.IsNull()) return false;
     carState = {car.GetLocation(), car.GetRotation(), car.GetVelocity(), car.GetAngularVelocity()};
     ballState = {ball.GetLocation(), ball.GetRotation(), ball.GetVelocity(), ball.GetAngularVelocity()};
@@ -97,8 +100,8 @@ void TASPlugin::RestoreStart() {
         carState = startCar_;
         ballState = startBall_;
     }
-    const CarWrapper car = gameWrapper->GetLocalCar();
-    const BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
+    CarWrapper car = gameWrapper->GetLocalCar();
+    BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
     if (car.IsNull() || ball.IsNull()) return;
     car.SetLocation(carState.location);
     car.SetRotation(carState.rotation);
@@ -205,7 +208,7 @@ void TASPlugin::Undo() {
 
 void TASPlugin::OnPlayerMove() {
     if (!IsOffline()) return;
-    const PlayerControllerWrapper controller = gameWrapper->GetPlayerController();
+    PlayerControllerWrapper controller = gameWrapper->GetPlayerController();
     if (controller.IsNull()) return;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -214,11 +217,11 @@ void TASPlugin::OnPlayerMove() {
         }
     }
 
-    const BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
+    BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
     if (ball.IsNull()) return;
     Vector velocity = ball.GetVelocity();
     const float oldSpeed = Length(previousBallVelocity_);
-    const float newSpeed = Length(velocity);
+    float newSpeed = Length(velocity);
     if (ballSpeedMultiplier_ > 1.01f && newSpeed > 1.0f && oldSpeed > 1.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
         velocity = Scale(velocity, ballSpeedMultiplier_);
         ball.SetVelocity(velocity);
@@ -240,7 +243,7 @@ void TASPlugin::OnPlayerMove() {
 
 void TASPlugin::ApplyPlaybackInput() {
     if (!IsOffline()) return;
-    const PlayerControllerWrapper controller = gameWrapper->GetPlayerController();
+    PlayerControllerWrapper controller = gameWrapper->GetPlayerController();
     if (controller.IsNull()) return;
     ControllerInput input{};
     bool apply = false;
