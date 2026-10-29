@@ -459,13 +459,23 @@ void TASPlugin::ApplyBallOptions() {
             constexpr float ballRadius = 93.0f;
             const float openingHalfWidth = halfWidth - ballRadius;
             const float openingHalfHeight = halfHeight - ballRadius;
-            if (std::fabs(lateral) > openingHalfWidth || std::fabs(vertical) > openingHalfHeight) continue;
+            // Only engage for a trajectory that is already reasonably close to
+            // this goal. A little extra room lets the assist correct near-post
+            // and crossbar misses without bending unrelated shots across goal.
+            if (std::fabs(lateral) > openingHalfWidth + 300.0f ||
+                std::fabs(vertical) > openingHalfHeight + 300.0f) continue;
 
-            const float side = lateral >= 0.0f ? 1.0f : -1.0f;
-            const float topMargin = std::min(ballRadius + 20.0f, openingHalfHeight * 0.45f);
-            const float sideMargin = std::min(ballRadius + 20.0f, openingHalfWidth * 0.45f);
-            aimPoint = Add(front, Add(Scale(right, side * (halfWidth - sideMargin)),
-                                      Scale(up, halfHeight - topMargin)));
+            // Aim for the upper left or upper right corner. Keep the ball's
+            // center one radius plus a small safety inset inside the visible
+            // opening; the goal trigger's rectangular extent can include the
+            // crossbar/post collision geometry.
+            constexpr float cornerInset = ballRadius + 45.0f;
+            const float side = std::fabs(lateral) > 1.0f
+                ? (lateral > 0.0f ? 1.0f : -1.0f)
+                : (Dot(velocity, right) >= 0.0f ? 1.0f : -1.0f);
+            const float targetLateral = side * std::max(0.0f, halfWidth - cornerInset);
+            const float targetVertical = std::max(0.0f, halfHeight - cornerInset);
+            aimPoint = Add(front, Add(Scale(right, targetLateral), Scale(up, targetVertical)));
             nearestGoalTime = timeToGoal;
             foundGoalPath = true;
         }
@@ -474,8 +484,20 @@ void TASPlugin::ApplyBallOptions() {
             const float flightTime = nearestGoalTime;
             Vector direction = Subtract(Subtract(aimPoint, loc), Scale(gravity, 0.5f * flightTime * flightTime));
             const float length = Length(direction);
-            if (length > 1.0f) {
-                velocity = Scale(direction, newSpeed / length);
+            const float currentSpeed = Length(velocity);
+            if (length > 1.0f && currentSpeed > 1.0f) {
+                // Recalculate the ideal crossing point every tick, but only
+                // turn a small amount per tick. This gives the pinch a gradual
+                // curve instead of instantly rotating its velocity toward goal.
+                const Vector currentDirection = Scale(velocity, 1.0f / currentSpeed);
+                const Vector targetDirection = Scale(direction, 1.0f / length);
+                const float alignment = std::clamp(Dot(currentDirection, targetDirection), -1.0f, 1.0f);
+                const float angle = std::acos(alignment);
+                constexpr float maxTurnPerTick = 0.004f;
+                const float blend = angle > maxTurnPerTick ? maxTurnPerTick / angle : 1.0f;
+                const Vector steeredDirection = Normalize(Add(Scale(currentDirection, 1.0f - blend),
+                                                               Scale(targetDirection, blend)));
+                velocity = Scale(steeredDirection, currentSpeed);
                 ball.SetVelocity(velocity);
             }
         }
