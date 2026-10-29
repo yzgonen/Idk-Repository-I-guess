@@ -335,6 +335,32 @@ void TASPlugin::ApplyBallOptions() {
     BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
     if (ball.IsNull()) return;
     Vector velocity = ball.GetVelocity();
+    const Vector ballLocation = ball.GetLocation();
+    const float touchTime = ball.GetLastTouchTime();
+    const float worldHitTime = ball.GetLastHitWorldTime();
+    if (hasBallPhysicsHistory_) {
+        const Vector impulseDelta = Subtract(velocity, previousBallVelocity_);
+        const float impulseSize = Length(impulseDelta);
+        const bool newCarTouch = touchTime > previousBallTouchTime_ + 0.001f;
+        const bool newWorldHit = worldHitTime > previousBallWorldHitTime_ + 0.001f;
+        const bool sameMoment = std::fabs(touchTime - worldHitTime) <= 0.15f;
+        CarWrapper car = gameWrapper->GetLocalCar();
+        const bool carWasClose = !car.IsNull() && Length(Subtract(car.GetLocation(), ballLocation)) <= ball.GetRadius() + 280.0f;
+        const float incomingSpeedKph = Length(velocity) * 0.036f;
+        if (newCarTouch && newWorldHit && sameMoment && carWasClose && impulseSize >= 800.0f && incomingSpeedKph >= 60.0f) {
+            // For a surface collision, incoming minus outgoing velocity points
+            // approximately along the contacted surface's outward normal.
+            const Vector collisionNormal = Normalize(Subtract(previousBallVelocity_, velocity));
+            PinchKind detected = PinchKind::Unknown;
+            if (collisionNormal.Z <= -0.65f) detected = PinchKind::Ground;
+            else if (collisionNormal.Z >= 0.65f) detected = PinchKind::Ceiling;
+            else if (std::sqrt(collisionNormal.X * collisionNormal.X + collisionNormal.Y * collisionNormal.Y) >= 0.65f)
+                detected = PinchKind::Wall;
+            std::lock_guard<std::mutex> lock(mutex_);
+            lastPinchKind_ = detected;
+            lastPinchSpeedKph_ = incomingSpeedKph;
+        }
+    }
     float ballMultiplier = 1.0f;
     float topBinThresholdKph = 110.0f;
     {
@@ -351,7 +377,7 @@ void TASPlugin::ApplyBallOptions() {
     }
     const float speedKph = newSpeed * 0.036f;
     if (speedKph >= topBinThresholdKph) {
-        const Vector loc = ball.GetLocation();
+        const Vector loc = ballLocation;
         const float gravityScale = ball.GetReplicatedBallGravityScale();
         const Vector gravity{0.0f, 0.0f, -650.0f * gravityScale};
         ServerWrapper gameState = gameWrapper->GetCurrentGameState();
@@ -428,6 +454,9 @@ void TASPlugin::ApplyBallOptions() {
         }
     }
     previousBallVelocity_ = velocity;
+    previousBallTouchTime_ = touchTime;
+    previousBallWorldHitTime_ = worldHitTime;
+    hasBallPhysicsHistory_ = true;
 }
 
 bool TASPlugin::IsSafeFileName(const std::string& name) const {
@@ -682,7 +711,9 @@ void TASPlugin::RenderSettings() {
             ImGui::TextDisabled("Replay speed changes how quickly the recorded inputs advance. Adjust it while a shot is playing.");
             float replaySpeed, ballMultiplier;
             float topBinThresholdKph;
-            { std::lock_guard<std::mutex> lock(mutex_); replaySpeed = playbackSpeed_; ballMultiplier = ballSpeedMultiplier_; topBinThresholdKph = topBinThresholdKph_; }
+            PinchKind lastPinch;
+            float lastPinchSpeedKph;
+            { std::lock_guard<std::mutex> lock(mutex_); replaySpeed = playbackSpeed_; ballMultiplier = ballSpeedMultiplier_; topBinThresholdKph = topBinThresholdKph_; lastPinch = lastPinchKind_; lastPinchSpeedKph = lastPinchSpeedKph_; }
             ImGui::SetNextItemWidth(360.0f);
             if (ImGui::SliderFloat("Replay input speed", &replaySpeed, 0.0f, 2.0f, "%.2fx")) {
                 replaySpeed = std::round(replaySpeed * 100.0f) / 100.0f;
@@ -704,6 +735,15 @@ void TASPlugin::RenderSettings() {
                     cvarManager->executeCommand("writeconfig", false);
                 });
             }
+            const char* pinchLabel = lastPinch == PinchKind::Wall ? "Wall pinch (Kuxir-style)" :
+                (lastPinch == PinchKind::Ground ? "Ground pinch" :
+                (lastPinch == PinchKind::Ceiling ? "Ceiling pinch" :
+                (lastPinch == PinchKind::Unknown ? "Pinch (surface unclear)" : "None yet")));
+            if (lastPinch == PinchKind::None)
+                ImGui::Text("Last pinch detected: %s", pinchLabel);
+            else
+                ImGui::Text("Last pinch detected: %s | %.0f km/h", pinchLabel, lastPinchSpeedKph);
+            ImGui::TextDisabled("Detection uses a close car touch, a world hit, and a sharp velocity change; unusual collisions may be unclassified.");
             ImGui::TextDisabled("Drag to set Rocket League game speed (0.50x to 2.00x).");
             ImGui::SetNextItemWidth(360.0f);
             if (ImGui::SliderFloat("Game speed", &gameSpeed_, 0.5f, 2.0f, "%.2fx")) {
