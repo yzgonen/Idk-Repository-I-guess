@@ -40,8 +40,11 @@ private:
     size_t playhead_ = 0;
     ActorState startCar_{}, startBall_{};
     ActorState pendingCar_{}, pendingBall_{};
+    ActorState saveStartCar_{}, saveStartBall_{};
     bool hasStart_ = false;
     bool hasPendingStart_ = false;
+    bool hasPendingSaveStart_ = false;
+    size_t saveStartFrameIndex_ = 0;
     size_t startFrameIndex_ = 0;
     bool completePlayback_ = false;
     float shotGameSpeed_ = 1.0f;
@@ -49,7 +52,7 @@ private:
     std::string selectedFile_;
     std::vector<std::string> tasFiles_;
     char newTasNameInput_[128] = "shot";
-    char bindInput_[8][32] = {{"F7"}, {"F8"}, {"Mouse4"}, {"B"}, {"F9"}, {"F10"}, {"F11"}, {"F12"}};
+    char bindInput_[9][32] = {{"F7"}, {"F8"}, {"Mouse4"}, {"B"}, {"F9"}, {"F10"}, {"F11"}, {"F12"}, {"F13"}};
     std::atomic_bool newTasDialogRequested_{false};
     int bindCaptureIndex_ = -1;
     bool keyWasDown_[256]{};
@@ -86,6 +89,7 @@ private:
     void PlayCompleteShot();
     void StartPlayback(bool completeShot);
     void UpdateStartPoint();
+    void SetSaveStartPoint();
     void DeleteCurrentTas();
     void OnGoalScored();
     void ToggleBallSpeed();
