@@ -221,14 +221,21 @@ void TASPlugin::OnPlayerMove() {
     BallWrapper ball = gameWrapper->GetCurrentGameState().GetBall();
     if (ball.IsNull()) return;
     Vector velocity = ball.GetVelocity();
+    float ballMultiplier = 1.0f;
+    bool topBin = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ballMultiplier = ballSpeedMultiplier_;
+        topBin = topBinAim_;
+    }
     const float oldSpeed = Length(previousBallVelocity_);
     float newSpeed = Length(velocity);
-    if (ballSpeedMultiplier_ > 1.01f && newSpeed > 1.0f && oldSpeed > 1.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
-        velocity = Scale(velocity, ballSpeedMultiplier_);
+    if (ballMultiplier > 1.01f && newSpeed > 1.0f && oldSpeed > 1.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
+        velocity = Scale(velocity, ballMultiplier);
         ball.SetVelocity(velocity);
-        newSpeed *= ballSpeedMultiplier_;
+        newSpeed *= ballMultiplier;
     }
-    if (topBinAim_ && std::fabs(newSpeed - oldSpeed) > 1500.0f && newSpeed > 1000.0f) {
+    if (topBin && std::fabs(newSpeed - oldSpeed) > 1500.0f && newSpeed > 1000.0f) {
         const Vector loc = ball.GetLocation();
         const float goalY = velocity.Y >= 0.0f ? 5120.0f : -5120.0f;
         const float goalX = loc.X >= 0.0f ? 850.0f : -850.0f;
@@ -283,21 +290,17 @@ void TASPlugin::SaveFile(const std::string& name) {
     if (!IsSafeFileName(name)) { SetStatus("Use a simple file name with letters, numbers, _ or -."); return; }
     ActorState car, ball;
     std::vector<Frame> frames;
+    bool hasState = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (hasStart_ || hasPendingStart_) {
+        hasState = hasStart_ || hasPendingStart_;
+        if (hasState) {
             car = hasPendingStart_ ? pendingCar_ : startCar_;
             ball = hasPendingStart_ ? pendingBall_ : startBall_;
             frames = frames_;
         }
     }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!hasStart_ && !hasPendingStart_) {
-            status_ = "Create a TAS and set its start point before saving.";
-            return;
-        }
-    }
+    if (!hasState) { SetStatus("Create a TAS and set its start point before saving."); return; }
     const auto path = DataPath(name);
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
@@ -416,21 +419,26 @@ void TASPlugin::RenderSettings() {
             if (ImGui::Combo("Game speed", &speedChoice, speeds, 3)) {
                 const float values[] = {0.5f, 1.0f, 2.0f};
                 gameSpeed_ = values[speedChoice];
-                gameWrapper->Execute([this](GameWrapper*) {
-                    cvarManager->getCvar("sv_soccar_gamespeed").setValue(gameSpeed_);
-                    cvarManager->getCvar("tasplugin_gamespeed").setValue(gameSpeed_);
+                const float speed = gameSpeed_;
+                gameWrapper->Execute([this, speed](GameWrapper*) {
+                    cvarManager->getCvar("sv_soccar_gamespeed").setValue(speed);
+                    cvarManager->getCvar("tasplugin_gamespeed").setValue(speed);
                     cvarManager->executeCommand("writeconfig", false);
                 });
             }
             const char* ballSpeeds[] = {"1x", "2x"};
             int ballChoice = ballSpeedMultiplier_ > 1.5f ? 1 : 0;
             if (ImGui::Combo("Ball speed", &ballChoice, ballSpeeds, 2)) {
-                ballSpeedMultiplier_ = ballChoice == 1 ? 2.0f : 1.0f;
-                cvarManager->getCvar("tasplugin_ball_speed").setValue(ballSpeedMultiplier_);
+                const float multiplier = ballChoice == 1 ? 2.0f : 1.0f;
+                { std::lock_guard<std::mutex> lock(mutex_); ballSpeedMultiplier_ = multiplier; }
+                cvarManager->getCvar("tasplugin_ball_speed").setValue(multiplier);
                 cvarManager->executeCommand("writeconfig", false);
             }
-            if (ImGui::Checkbox("Top-bin aim assist (offline)", &topBinAim_)) {
-                cvarManager->getCvar("tasplugin_topbin_aim").setValue(topBinAim_ ? 1 : 0);
+            bool topBinChoice = false;
+            { std::lock_guard<std::mutex> lock(mutex_); topBinChoice = topBinAim_; }
+            if (ImGui::Checkbox("Top-bin aim assist (offline)", &topBinChoice)) {
+                { std::lock_guard<std::mutex> lock(mutex_); topBinAim_ = topBinChoice; }
+                cvarManager->getCvar("tasplugin_topbin_aim").setValue(topBinChoice ? 1 : 0);
                 cvarManager->executeCommand("writeconfig", false);
             }
             ImGui::EndTabItem();
