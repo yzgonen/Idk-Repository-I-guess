@@ -5,6 +5,7 @@
 #include "bakkesmod/wrappers/wrapperstructs.h"
 #include <mutex>
 #include <filesystem>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,7 @@ private:
     bool keyWasDown_[256]{};
     float playbackSpeed_ = 1.0f;
     float playbackFrameAccumulator_ = 0.0f;
+    uint64_t playerMoveTicks_ = 0;
     float gameSpeed_ = 1.0f;
     bool topBinAim_ = false;
     float ballSpeedMultiplier_ = 1.0f;
