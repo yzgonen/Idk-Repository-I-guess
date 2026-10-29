@@ -207,7 +207,6 @@ void TASPlugin::NewShot(const std::string& name) {
         hasPendingStart_ = false;
         startFrameIndex_ = 0;
         completePlayback_ = false;
-        shotGameSpeed_ = gameSpeed_;
         playhead_ = 0;
         playbackFrameAccumulator_ = 0.0f;
         previousBallVelocity_ = ball.velocity;
@@ -231,7 +230,6 @@ void TASPlugin::RecordFromStart() {
         }
         if (startFrameIndex_ > frames_.size()) startFrameIndex_ = frames_.size();
         frames_.resize(startFrameIndex_); // Keep recorded history before the selected start point.
-        shotGameSpeed_ = gameSpeed_;
         playhead_ = startFrameIndex_;
         playbackFrameAccumulator_ = 0.0f;
         lastRecordedBallState_ = startBall_;
@@ -266,15 +264,6 @@ void TASPlugin::PlayCompleteShot() {
     // Play always means replay the last explicitly saved take. Unsaved recording
     // changes are discarded here, leaving the previous saved shot intact.
     LoadFile(savedName);
-    float savedGameSpeed = 1.0f;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        savedGameSpeed = shotGameSpeed_;
-    }
-    savedGameSpeed = std::clamp(savedGameSpeed, 0.5f, 2.0f);
-    cvarManager->getCvar("sv_soccar_gamespeed").setValue(savedGameSpeed);
-    cvarManager->getCvar("tasplugin_gamespeed").setValue(savedGameSpeed);
-    cvarManager->executeCommand("writeconfig", false);
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (frames_.empty() || startFrameIndex_ >= frames_.size()) { status_ = "There are no saved frames after this start point. Record a take first."; return; }
@@ -291,8 +280,6 @@ void TASPlugin::PlayCompleteShot() {
         playbackBaselineSet_ = false;
         playbackLastInput_ = frames_[playhead_].input;
         completePlayback_ = true;
-        gameSpeed_ = savedGameSpeed;
-        playbackSpeed_ = savedGameSpeed;
     }
     RestoreStart();
     SetStatus("Playing the complete saved shot from its start point.");
@@ -673,7 +660,6 @@ bool TASPlugin::SaveFile(const std::string& name) {
     ActorState car, ball;
     std::vector<Frame> frames;
     size_t startFrameIndex = 0;
-    float shotGameSpeed = 1.0f;
     bool hasState = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -683,7 +669,6 @@ bool TASPlugin::SaveFile(const std::string& name) {
             ball = hasPendingStart_ ? pendingBall_ : startBall_;
             frames = frames_;
             startFrameIndex = std::min(startFrameIndex_, frames.size());
-            shotGameSpeed = std::clamp(shotGameSpeed_, 0.5f, 2.0f);
         }
     }
     if (!hasState) { SetStatus("Create a TAS and set its start point before saving."); return false; }
@@ -692,10 +677,10 @@ bool TASPlugin::SaveFile(const std::string& name) {
     std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream out(path, std::ios::trunc);
     if (!out) { SetStatus("Could not create the TAS file."); return false; }
-    out << "TASPLUGIN,5\n" << std::setprecision(9);
+    out << "TASPLUGIN,4\n" << std::setprecision(9);
     WriteActor(out, car); out << '\n';
     WriteActor(out, ball); out << '\n';
-    out << frames.size() << ',' << startFrameIndex << ',' << shotGameSpeed << '\n';
+    out << frames.size() << ',' << startFrameIndex << '\n';
     for (const auto& frame : frames) {
         const auto& i = frame.input;
         out << i.Throttle << ',' << i.Steer << ',' << i.Pitch << ',' << i.Yaw << ',' << i.Roll << ','
@@ -710,7 +695,6 @@ bool TASPlugin::SaveFile(const std::string& name) {
         selectedFile_ = name;
         startCar_ = car; startBall_ = ball; hasStart_ = true; hasPendingStart_ = false;
         startFrameIndex_ = startFrameIndex;
-        shotGameSpeed_ = shotGameSpeed;
     }
     RefreshFileList();
     SetStatus("Saved " + path.filename().string() + " (" + std::to_string(frames.size()) + " frames).");
@@ -723,23 +707,16 @@ void TASPlugin::LoadFile(const std::string& name) {
     std::string header;
     ActorState car, ball;
     size_t count = 0, startFrameIndex = 0;
-    float shotGameSpeed = gameSpeed_;
-    if (!std::getline(in, header) || (header != "TASPLUGIN,2" && header != "TASPLUGIN,3" && header != "TASPLUGIN,4" && header != "TASPLUGIN,5") || !ReadActor(in, car) || !ReadActor(in, ball) || !(in >> count) || count > 2000000) {
+    if (!std::getline(in, header) || (header != "TASPLUGIN,2" && header != "TASPLUGIN,3" && header != "TASPLUGIN,4") || !ReadActor(in, car) || !ReadActor(in, ball) || !(in >> count) || count > 2000000) {
         SetStatus("Could not load this TAS file or its format is invalid."); return;
     }
-    if (header == "TASPLUGIN,4" || header == "TASPLUGIN,5") {
+    if (header == "TASPLUGIN,4") {
         char comma = 0;
         if (!(in >> comma >> startFrameIndex) || comma != ',' || startFrameIndex > count) {
             SetStatus("TAS file has an invalid saved start point."); return;
         }
     }
-    if (header == "TASPLUGIN,5") {
-        char comma = 0;
-        if (!(in >> comma >> shotGameSpeed) || comma != ',' || !std::isfinite(shotGameSpeed) || shotGameSpeed < 0.5f || shotGameSpeed > 2.0f) {
-            SetStatus("TAS file has an invalid recorded game speed."); return;
-        }
-    }
-    const bool hasFrameBallStates = header == "TASPLUGIN,3" || header == "TASPLUGIN,4" || header == "TASPLUGIN,5";
+    const bool hasFrameBallStates = header == "TASPLUGIN,3" || header == "TASPLUGIN,4";
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::vector<Frame> loaded;
     loaded.reserve(count);
@@ -775,7 +752,6 @@ void TASPlugin::LoadFile(const std::string& name) {
         std::lock_guard<std::mutex> lock(mutex_);
         frames_ = std::move(loaded); startCar_ = car; startBall_ = ball; hasStart_ = true;
         startFrameIndex_ = startFrameIndex; completePlayback_ = false;
-        shotGameSpeed_ = shotGameSpeed;
         hasPendingStart_ = false; playhead_ = 0; mode_ = Mode::Idle; selectedFile_ = name;
     }
     RefreshFileList();
@@ -943,20 +919,10 @@ void TASPlugin::RenderSettings() {
             ImGui::SetNextItemWidth(360.0f);
             if (ImGui::SliderFloat("Replay input speed", &replaySpeed, 0.0f, 2.0f, "%.2fx")) {
                 replaySpeed = std::round(replaySpeed * 100.0f) / 100.0f;
-                {
-                    std::lock_guard<std::mutex> lock(mutex_);
-                    playbackSpeed_ = replaySpeed;
-                    if (replaySpeed > 0.0f) gameSpeed_ = replaySpeed;
-                }
-                if (replaySpeed > 0.0f) {
-                    gameWrapper->Execute([this, replaySpeed](GameWrapper*) {
-                        cvarManager->getCvar("sv_soccar_gamespeed").setValue(replaySpeed);
-                        cvarManager->getCvar("tasplugin_gamespeed").setValue(replaySpeed);
-                        cvarManager->executeCommand("writeconfig", false);
-                    });
-                }
+                std::lock_guard<std::mutex> lock(mutex_);
+                playbackSpeed_ = replaySpeed;
             }
-            ImGui::TextDisabled("Above 0x, playback and game physics stay in sync to prevent the car and ball drifting off the recorded path. 0x holds the input while physics continue.");
+            ImGui::TextDisabled("This changes recorded input playback only. Rocket League game speed is controlled separately below.");
             if (ImGui::Button(ballMultiplier > 1.5f ? "Ball speed: 2x" : "Ball speed: 1x")) cvarManager->executeCommand("tasplugin_toggle_ball_speed", false);
             ImGui::TextDisabled("Top-bin aim is automatic when the ball is heading into the goal and reaches the speed below.");
             ImGui::SetNextItemWidth(360.0f);
@@ -985,10 +951,6 @@ void TASPlugin::RenderSettings() {
             if (ImGui::SliderFloat("Game speed", &gameSpeed_, 0.5f, 2.0f, "%.2fx")) {
                 gameSpeed_ = std::round(gameSpeed_ * 100.0f) / 100.0f;
                 const float speed = gameSpeed_;
-                {
-                    std::lock_guard<std::mutex> lock(mutex_);
-                    playbackSpeed_ = speed;
-                }
                 gameWrapper->Execute([this, speed](GameWrapper*) {
                     cvarManager->getCvar("sv_soccar_gamespeed").setValue(speed);
                     cvarManager->getCvar("tasplugin_gamespeed").setValue(speed);
