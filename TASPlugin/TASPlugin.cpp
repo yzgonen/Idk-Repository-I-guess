@@ -8,14 +8,21 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <iterator>
 #include <sstream>
+#include <Windows.h>
 
 BAKKESMOD_PLUGIN(TASPlugin, "TAS Plugin", "2.0.0", PLUGINTYPE_FREEPLAY)
 
 namespace {
 constexpr const char* kMoveEvent = "Function TAGame.PlayerController_TA.PlayerMove";
 constexpr const char* kBindCommands[] = {
-    "tasplugin_new", "tasplugin_play", "tasplugin_stop", "tasplugin_update_start"
+    "tasplugin_new", "tasplugin_play", "tasplugin_stop", "tasplugin_update_start",
+    "tasplugin_playback_speed", "tasplugin_toggle_ball_speed", "tasplugin_toggle_topbin_aim", "tasplugin_undo"
+};
+constexpr const char* kBindLabels[] = {
+    "New TAS / start recording", "Play / record", "Stop", "Update next start point",
+    "Cycle replay speed", "Toggle ball speed (1x / 2x)", "Toggle top-bin aim", "Undo last recorded frame"
 };
 
 float Length(const Vector& v) { return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z); }
@@ -45,8 +52,8 @@ void TASPlugin::onLoad() {
     gameSpeed_ = cvarManager->getCvar("tasplugin_gamespeed").getFloatValue();
     ballSpeedMultiplier_ = cvarManager->getCvar("tasplugin_ball_speed").getFloatValue();
     topBinAim_ = cvarManager->getCvar("tasplugin_topbin_aim").getBoolValue();
-    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "Mouse5"};
-    for (int i = 0; i < 4; ++i) {
+    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "Mouse5", "=", "B", "T", "Z"};
+    for (int i = 0; i < 8; ++i) {
         const std::string cvar = "tasplugin_bind_" + std::to_string(i);
         cvarManager->registerCvar(cvar, defaultBinds[i], "TAS Plugin bind");
         const std::string key = cvarManager->getCvar(cvar).getStringValue();
@@ -120,6 +127,9 @@ void TASPlugin::RegisterCommands() {
     cvarManager->registerNotifier("tasplugin_play", [this](std::vector<std::string>) { StartOrReplay(); }, "Replay the loaded TAS or begin recording if it is empty", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
     cvarManager->registerNotifier("tasplugin_stop", [this](std::vector<std::string>) { Stop(); }, "Stop TAS recording or playback", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
     cvarManager->registerNotifier("tasplugin_update_start", [this](std::vector<std::string>) { UpdateStartPoint(); }, "Update the start position for the next replay without stopping recording", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
+    cvarManager->registerNotifier("tasplugin_playback_speed", [this](std::vector<std::string>) { CyclePlaybackSpeed(); }, "Cycle replay speed through 0.5x, 1x, and 2x", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
+    cvarManager->registerNotifier("tasplugin_toggle_ball_speed", [this](std::vector<std::string>) { ToggleBallSpeed(); }, "Toggle ball speed between 1x and 2x", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
+    cvarManager->registerNotifier("tasplugin_toggle_topbin_aim", [this](std::vector<std::string>) { ToggleTopBinAim(); }, "Toggle offline top-bin aim assist", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
     cvarManager->registerNotifier("tasplugin_undo", [this](std::vector<std::string>) { Undo(); }, "Undo the last recorded input frame", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
     cvarManager->registerNotifier("tasplugin_save", [this](std::vector<std::string> args) { SaveFile(args.size() > 1 ? args[1] : selectedFile_); }, "Save the current TAS file", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
     cvarManager->registerNotifier("tasplugin_load", [this](std::vector<std::string> args) { if (args.size() > 1) LoadFile(args[1]); }, "Load a TAS file by name", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
@@ -137,6 +147,7 @@ void TASPlugin::NewShot() {
         hasStart_ = true;
         hasPendingStart_ = false;
         playhead_ = 0;
+        playbackFrameAccumulator_ = 0.0f;
         mode_ = Mode::Recording;
     }
     SetStatus("Recording from the current position. Use Stop, then Save TAS.");
@@ -165,6 +176,7 @@ void TASPlugin::StartOrReplay() {
             if (!hasStart_) { status_ = "This TAS has no start point. Create a new TAS first."; return; }
             mode_ = Mode::Playing;
             playhead_ = 0;
+            playbackFrameAccumulator_ = 0.0f;
         }
     }
     if (recording) {
@@ -205,6 +217,37 @@ void TASPlugin::Undo() {
     frames_.pop_back();
     if (playhead_ > frames_.size()) playhead_ = frames_.size();
     status_ = "Removed the last recorded input frame.";
+}
+
+void TASPlugin::CyclePlaybackSpeed() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    playbackSpeed_ = playbackSpeed_ < 0.75f ? 1.0f : (playbackSpeed_ < 1.5f ? 2.0f : 0.5f);
+    playbackFrameAccumulator_ = 0.0f;
+    status_ = "Replay speed set to " + std::to_string(static_cast<int>(playbackSpeed_ * 100.0f)) + "%";
+}
+
+void TASPlugin::ToggleBallSpeed() {
+    float multiplier;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ballSpeedMultiplier_ = ballSpeedMultiplier_ > 1.5f ? 1.0f : 2.0f;
+        multiplier = ballSpeedMultiplier_;
+        status_ = multiplier > 1.5f ? "Ball speed set to 2x." : "Ball speed set to 1x.";
+    }
+    cvarManager->getCvar("tasplugin_ball_speed").setValue(multiplier);
+    cvarManager->executeCommand("writeconfig", false);
+}
+
+void TASPlugin::ToggleTopBinAim() {
+    bool enabled;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        topBinAim_ = !topBinAim_;
+        enabled = topBinAim_;
+        status_ = enabled ? "Top-bin aim assist enabled." : "Top-bin aim assist disabled.";
+    }
+    cvarManager->getCvar("tasplugin_topbin_aim").setValue(enabled ? 1 : 0);
+    cvarManager->executeCommand("writeconfig", false);
 }
 
 void TASPlugin::OnPlayerMove() {
@@ -259,17 +302,28 @@ void TASPlugin::ApplyPlaybackInput() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (mode_ != Mode::Playing) return;
+        playbackFrameAccumulator_ += playbackSpeed_;
+        const size_t steps = static_cast<size_t>(playbackFrameAccumulator_);
+        if (steps == 0) return;
+        playbackFrameAccumulator_ -= static_cast<float>(steps);
         if (playhead_ >= frames_.size()) {
             mode_ = Mode::Idle;
             status_ = "Playback finished.";
             finished = true;
         } else {
-            input = frames_[playhead_++].input;
+            const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
+            input = frames_[lastFrame].input;
+            playhead_ = lastFrame + 1;
             apply = true;
+            if (playhead_ >= frames_.size()) {
+                mode_ = Mode::Idle;
+                finished = true;
+                status_ = "Playback finished.";
+            }
         }
     }
     if (apply) controller.SetVehicleInput(input);
-    if (finished) controller.SetVehicleInput(ControllerInput{});
+    if (finished && !apply) controller.SetVehicleInput(ControllerInput{});
 }
 
 bool TASPlugin::IsSafeFileName(const std::string& name) const {
@@ -362,10 +416,10 @@ void TASPlugin::LoadFile(const std::string& name) {
 }
 
 void TASPlugin::SetBind(int index, const std::string& key) {
-    if (index < 0 || index >= 4 || !IsSafeFileName(key)) { SetStatus("Enter a valid key name such as F7, Mouse4, or =."); return; }
-    static const char* commands[] = {"tasplugin_new", "tasplugin_play", "tasplugin_stop", "tasplugin_update_start"};
+    if (index < 0 || index >= 8 || key.empty() || key.size() > 31 || !std::all_of(key.begin(), key.end(), [](unsigned char c) { return std::isalnum(c) || c == '='; })) { SetStatus("Could not read that key. Click Set bind, then press one key or mouse button."); return; }
+    const std::string command = kBindCommands[index];
     const std::string cvar = "tasplugin_bind_" + std::to_string(index);
-    gameWrapper->Execute([this, cvar, key, command = std::string(commands[index])](GameWrapper*) {
+    gameWrapper->Execute([this, cvar, key, command](GameWrapper*) {
         cvarManager->getCvar(cvar).setValue(key);
         cvarManager->executeCommand("bind " + key + " \"" + command + "\"", false);
         cvarManager->executeCommand("writeconfig", false);
@@ -375,12 +429,55 @@ void TASPlugin::SetBind(int index, const std::string& key) {
     SetStatus("Saved bind " + key + ".");
 }
 
+std::string TASPlugin::KeyNameFromVirtualKey(int key) {
+    if (key >= 'A' && key <= 'Z') return std::string(1, static_cast<char>(key));
+    if (key >= '0' && key <= '9') return std::string(1, static_cast<char>(key));
+    if (key >= VK_F1 && key <= VK_F24) return "F" + std::to_string(key - VK_F1 + 1);
+    switch (key) {
+        case VK_OEM_PLUS: return "=";
+        case VK_SPACE: return "Space";
+        case VK_RETURN: return "Enter";
+        case VK_TAB: return "Tab";
+        case VK_ESCAPE: return "Escape";
+        case VK_UP: return "Up";
+        case VK_DOWN: return "Down";
+        case VK_LEFT: return "Left";
+        case VK_RIGHT: return "Right";
+        case VK_OEM_MINUS: return "-";
+        default: return {};
+    }
+}
+
+void TASPlugin::CaptureBindInput() {
+    if (bindCaptureIndex_ < 0) return;
+    for (int key = 1; key < 256; ++key) {
+        const bool down = (GetAsyncKeyState(key) & 0x8000) != 0;
+        const bool pressed = down && !keyWasDown_[key];
+        keyWasDown_[key] = down;
+        if (!pressed || key == VK_SHIFT || key == VK_CONTROL || key == VK_MENU || key == VK_LWIN || key == VK_RWIN) continue;
+        std::string name;
+        if (key == VK_XBUTTON1) name = "Mouse4";
+        else if (key == VK_XBUTTON2) name = "Mouse5";
+        else if (key == VK_LBUTTON) name = "Mouse1";
+        else if (key == VK_RBUTTON) name = "Mouse2";
+        else if (key == VK_MBUTTON) name = "Mouse3";
+        else name = KeyNameFromVirtualKey(key);
+        if (!name.empty()) {
+            const int index = bindCaptureIndex_;
+            bindCaptureIndex_ = -1;
+            SetBind(index, name);
+            return;
+        }
+    }
+}
+
 void TASPlugin::SetStatus(const std::string& message) {
     std::lock_guard<std::mutex> lock(mutex_);
     status_ = message;
 }
 
 void TASPlugin::RenderSettings() {
+    const bool captureWasActiveAtFrameStart = bindCaptureIndex_ >= 0;
     ImGui::TextUnformatted("TAS PLUGIN");
     ImGui::TextDisabled("Record, replay, update the start point, and manage TAS files.");
     ImGui::Separator();
@@ -414,6 +511,17 @@ void TASPlugin::RenderSettings() {
         if (ImGui::BeginTabItem("Game settings")) {
             ImGui::TextUnformatted("Offline game settings");
             ImGui::TextDisabled("Uses Rocket League's game speed and the live ball velocity; no custom-match mutator screen.");
+            float replaySpeed;
+            float ballMultiplier;
+            bool topBin;
+            { std::lock_guard<std::mutex> lock(mutex_); replaySpeed = playbackSpeed_; ballMultiplier = ballSpeedMultiplier_; topBin = topBinAim_; }
+            const char* replayLabel = replaySpeed < 0.75f ? "Replay speed: 0.5x" : (replaySpeed < 1.5f ? "Replay speed: 1x" : "Replay speed: 2x");
+            if (ImGui::Button(replayLabel)) cvarManager->executeCommand("tasplugin_playback_speed", false);
+            ImGui::SameLine();
+            if (ImGui::Button(ballMultiplier > 1.5f ? "Ball speed: 2x" : "Ball speed: 1x")) cvarManager->executeCommand("tasplugin_toggle_ball_speed", false);
+            ImGui::SameLine();
+            if (ImGui::Button(topBin ? "Top-bin aim: ON" : "Top-bin aim: OFF")) cvarManager->executeCommand("tasplugin_toggle_topbin_aim", false);
+            ImGui::TextDisabled("The replay speed button cycles 0.5x → 1x → 2x → 0.5x.");
             const char* speeds[] = {"0.5x", "1x", "2x"};
             int speedChoice = gameSpeed_ < 0.75f ? 0 : (gameSpeed_ < 1.5f ? 1 : 2);
             if (ImGui::Combo("Game speed", &speedChoice, speeds, 3)) {
@@ -444,16 +552,19 @@ void TASPlugin::RenderSettings() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Binds")) {
-            ImGui::TextDisabled("Four bind slots, matching the TAS controls. Mouse4 / Mouse5 are supported.");
-            const char* labels[] = {"New TAS / record", "Play / record", "Stop", "Update next start"};
-            for (int i = 0; i < 4; ++i) {
+            ImGui::TextDisabled("Click Set bind, then press the key or mouse button you want. HyperX side buttons are Mouse4 and Mouse5.");
+            for (int i = 0; i < 8; ++i) {
                 ImGui::PushID(i);
-                ImGui::TextUnformatted(labels[i]); ImGui::SameLine(190.0f);
-                ImGui::SetNextItemWidth(100.0f);
-                ImGui::InputText("##bind", bindInput_[i], sizeof(bindInput_[i])); ImGui::SameLine();
-                if (ImGui::Button("Apply")) SetBind(i, bindInput_[i]);
+                ImGui::TextUnformatted(kBindLabels[i]); ImGui::SameLine(270.0f);
+                ImGui::Text("%s", bindInput_[i]); ImGui::SameLine(390.0f);
+                const bool capturing = bindCaptureIndex_ == i;
+                if (ImGui::Button(capturing ? "Press a key..." : "Set bind")) {
+                    bindCaptureIndex_ = i;
+                    std::fill(std::begin(keyWasDown_), std::end(keyWasDown_), false);
+                }
                 ImGui::PopID();
             }
+            if (captureWasActiveAtFrameStart) CaptureBindInput();
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("About")) {
