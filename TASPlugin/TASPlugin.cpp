@@ -16,18 +16,29 @@ BAKKESMOD_PLUGIN(TASPlugin, "TAS Plugin", "2.0.0", PLUGINTYPE_FREEPLAY)
 
 namespace {
 constexpr const char* kInputEvent = "Function TAGame.Car_TA.SetVehicleInput";
-constexpr const char* kBindCommands[] = {
-    "tasplugin_new", "tasplugin_play", "tasplugin_stop", "tasplugin_update_start",
-    "tasplugin_playback_speed", "tasplugin_toggle_ball_speed", "tasplugin_toggle_topbin_aim", "tasplugin_undo"
+constexpr int kBindCount = 5;
+constexpr const char* kBindCommands[kBindCount] = {
+    "tasplugin_new", "tasplugin_play", "tasplugin_stop",
+    "tasplugin_toggle_ball_speed", "tasplugin_toggle_topbin_aim"
 };
 constexpr const char* kBindLabels[] = {
-    "New TAS / start recording", "Play / record", "Stop", "Update next start point",
-    "Cycle replay speed", "Toggle ball speed (1x / 2x)", "Toggle top-bin aim", "Undo last recorded frame"
+    "New TAS", "Play The Shot", "Finish / close current TAS",
+    "Toggle ball speed (1x / 2x)", "Toggle top-bin aim"
 };
 
 float Length(const Vector& v) { return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z); }
 Vector Scale(const Vector& v, float s) { return Vector{v.X * s, v.Y * s, v.Z * s}; }
 Vector Subtract(const Vector& a, const Vector& b) { return Vector{a.X-b.X, a.Y-b.Y, a.Z-b.Z}; }
+
+bool InputsDiffer(const ControllerInput& a, const ControllerInput& b) {
+    constexpr float deadzone = 0.05f;
+    return std::fabs(a.Throttle - b.Throttle) > deadzone || std::fabs(a.Steer - b.Steer) > deadzone ||
+        std::fabs(a.Pitch - b.Pitch) > deadzone || std::fabs(a.Yaw - b.Yaw) > deadzone ||
+        std::fabs(a.Roll - b.Roll) > deadzone || std::fabs(a.DodgeForward - b.DodgeForward) > deadzone ||
+        std::fabs(a.DodgeStrafe - b.DodgeStrafe) > deadzone || a.Handbrake != b.Handbrake ||
+        a.Jump != b.Jump || a.ActivateBoost != b.ActivateBoost || a.HoldingBoost != b.HoldingBoost ||
+        a.Jumped != b.Jumped;
+}
 
 void WriteActor(std::ostream& out, const TASPlugin::ActorState& a) {
     out << a.location.X << ',' << a.location.Y << ',' << a.location.Z << ','
@@ -53,9 +64,9 @@ void TASPlugin::onLoad() {
     ballSpeedMultiplier_ = cvarManager->getCvar("tasplugin_ball_speed").getFloatValue();
     topBinAim_ = cvarManager->getCvar("tasplugin_topbin_aim").getBoolValue();
     RegisterCommands();
-    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "Mouse5", "=", "B", "T", "Z"};
-    for (int i = 0; i < 8; ++i) {
-        const std::string cvar = "tasplugin_bind_" + std::to_string(i);
+    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "B", "T"};
+    for (int i = 0; i < kBindCount; ++i) {
+        const std::string cvar = "tasplugin_named_bind_" + std::to_string(i);
         cvarManager->registerCvar(cvar, defaultBinds[i], "TAS Plugin bind");
         const std::string key = cvarManager->getCvar(cvar).getStringValue();
         std::strncpy(bindInput_[i], key.c_str(), sizeof(bindInput_[i]) - 1);
@@ -64,13 +75,13 @@ void TASPlugin::onLoad() {
     }
     gameWrapper->HookEventWithCaller<CarWrapper>(kInputEvent,
         [this](CarWrapper, void* params, std::string) { OnSetVehicleInput(params); });
-    SetStatus("Ready — load a TAS or create a new shot in offline Free Play.");
+    RefreshFileList();
+    SetStatus("Ready — create or select a TAS in offline Free Play.");
 }
 
 void TASPlugin::onUnload() {
     gameWrapper->UnhookEvent(kInputEvent);
-    std::lock_guard<std::mutex> lock(mutex_);
-    mode_ = Mode::Idle;
+    CloseCurrentShot();
 }
 
 std::string TASPlugin::GetPluginName() { return "TASPlugin"; }
@@ -122,22 +133,33 @@ void TASPlugin::RestoreStart() {
 }
 
 void TASPlugin::RegisterCommands() {
-    cvarManager->registerNotifier("tasplugin_new", [this](std::vector<std::string>) { NewShot(); }, "Start a new TAS recording from the current car and ball positions", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_new", [this](std::vector<std::string>) { RequestNewShotDialog(); }, "Create and name a new TAS", PERMISSION_ALL);
     cvarManager->registerNotifier("tasplugin_play", [this](std::vector<std::string>) { StartOrReplay(); }, "Replay the loaded TAS or begin recording if it is empty", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_stop", [this](std::vector<std::string>) { Stop(); }, "Stop TAS recording or playback", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_update_start", [this](std::vector<std::string>) { UpdateStartPoint(); }, "Update the start position for the next replay without stopping recording", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_playback_speed", [this](std::vector<std::string>) { CyclePlaybackSpeed(); }, "Cycle replay speed through 0.5x, 1x, and 2x", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_stop", [this](std::vector<std::string>) { CloseCurrentShot(); }, "Finish and save the current TAS", PERMISSION_ALL);
     cvarManager->registerNotifier("tasplugin_toggle_ball_speed", [this](std::vector<std::string>) { ToggleBallSpeed(); }, "Toggle ball speed between 1x and 2x", PERMISSION_ALL);
     cvarManager->registerNotifier("tasplugin_toggle_topbin_aim", [this](std::vector<std::string>) { ToggleTopBinAim(); }, "Toggle offline top-bin aim assist", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_undo", [this](std::vector<std::string>) { Undo(); }, "Undo the last recorded input frame", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_save", [this](std::vector<std::string> args) { SaveFile(args.size() > 1 ? args[1] : selectedFile_); }, "Save the current TAS file", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_load", [this](std::vector<std::string> args) { if (args.size() > 1) LoadFile(args[1]); }, "Load a TAS file by name", PERMISSION_ALL);
 }
 
-void TASPlugin::NewShot() {
+void TASPlugin::RequestNewShotDialog() {
+    newTasDialogRequested_.store(true);
+}
+
+void TASPlugin::NewShot(const std::string& name) {
+    std::string canonicalName = name;
+    if (std::filesystem::path(canonicalName).extension() == ".tas")
+        canonicalName = std::filesystem::path(canonicalName).stem().string();
+    if (!IsSafeFileName(canonicalName)) { SetStatus("Choose a simple TAS name using letters, numbers, _ or -."); return; }
     if (!IsOffline()) { SetStatus("TAS recording works only in Free Play or Custom Training."); return; }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (std::find(tasFiles_.begin(), tasFiles_.end(), canonicalName) != tasFiles_.end()) {
+            status_ = "That name already exists. Select that TAS or choose another name.";
+            return;
+        }
+    }
     ActorState car, ball;
     if (!CaptureState(car, ball)) { SetStatus("Could not read the current car and ball state."); return; }
+    if (!CloseCurrentShot()) return;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         frames_.clear();
@@ -149,93 +171,62 @@ void TASPlugin::NewShot() {
         playbackFrameAccumulator_ = 0.0f;
         previousBallVelocity_ = ball.velocity;
         mode_ = Mode::Recording;
+        selectedFile_ = canonicalName;
     }
-    SetStatus("Recording from the current position. Use Stop, then Save TAS.");
+    RefreshFileList();
+    SetStatus("Recording new TAS: " + canonicalName + ". Press Play The Shot to replay it; Finish / close saves it.");
 }
 
 void TASPlugin::StartOrReplay() {
     if (!IsOffline()) { SetStatus("TAS playback works only in Free Play or Custom Training."); return; }
-    ActorState capturedCar, capturedBall;
-    bool needCapture = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (frames_.empty()) { status_ = "This TAS has no recorded inputs yet. Record it first."; return; }
         if (hasPendingStart_) {
             startCar_ = pendingCar_;
             startBall_ = pendingBall_;
             hasStart_ = true;
             hasPendingStart_ = false;
         }
-        if (frames_.empty()) {
-            needCapture = !hasStart_;
-        } else {
-            if (!hasStart_) { status_ = "This TAS has no start point. Create a new TAS first."; return; }
-            mode_ = Mode::Playing;
-            playhead_ = 0;
-            playbackFrameAccumulator_ = 0.0f;
-        }
+        if (!hasStart_) { status_ = "This TAS has no start point. Create a new TAS first."; return; }
+        mode_ = Mode::Playing;
+        playhead_ = 0;
+        playbackFrameAccumulator_ = 0.0f;
+        playbackBaselineSet_ = false;
+        playbackLastInput_ = frames_.front().input;
     }
-    if (needCapture) {
-        if (!CaptureState(capturedCar, capturedBall)) { SetStatus("Could not read the current car and ball state."); return; }
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!hasStart_ && frames_.empty()) {
-            startCar_ = capturedCar;
-            startBall_ = capturedBall;
-            hasStart_ = true;
-        }
-    }
-    bool recording = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (frames_.empty()) {
-            mode_ = Mode::Recording;
-            recording = true;
-        }
-    }
-    if (recording) {
-        SetStatus("Recording started.");
-    } else {
-        RestoreStart();
-        SetStatus("Replaying TAS from frame 1.");
-    }
+    RestoreStart();
+    SetStatus("Playing The Shot from the beginning. Take control to branch the shot.");
 }
 
-void TASPlugin::Stop() {
+bool TASPlugin::CloseCurrentShot() {
+    std::string name;
+    bool hasState = false;
     Mode oldMode;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        name = selectedFile_;
+        hasState = hasStart_;
         oldMode = mode_;
         mode_ = Mode::Idle;
     }
-    if (oldMode == Mode::Recording) SetStatus("Recording stopped. Save TAS to keep the frames.");
-    else if (oldMode == Mode::Playing) SetStatus("Playback stopped.");
-    else SetStatus("TAS is already stopped.");
-}
-
-void TASPlugin::UpdateStartPoint() {
-    ActorState car, ball;
-    if (!CaptureState(car, ball)) { SetStatus("Start point can only be updated in offline Free Play or Custom Training."); return; }
+    if (hasState && !name.empty() && !SaveFile(name)) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        mode_ = oldMode;
+        return false;
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        pendingCar_ = car;
-        pendingBall_ = ball;
-        hasPendingStart_ = true;
+        frames_.clear();
+        playhead_ = 0;
+        playbackFrameAccumulator_ = 0.0f;
+        hasStart_ = false;
+        hasPendingStart_ = false;
+        selectedFile_.clear();
     }
-    SetStatus("Start point updated. Recording continues; the next replay starts here.");
-}
-
-void TASPlugin::Undo() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (frames_.empty()) { status_ = "Nothing to undo."; return; }
-    frames_.pop_back();
-    if (playhead_ > frames_.size()) playhead_ = frames_.size();
-    status_ = "Removed the last recorded input frame.";
-}
-
-void TASPlugin::CyclePlaybackSpeed() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    playbackSpeed_ = playbackSpeed_ < 0.75f ? 1.0f : (playbackSpeed_ < 1.5f ? 2.0f : 0.5f);
-    playbackFrameAccumulator_ = 0.0f;
-    status_ = "Replay speed set to " + std::to_string(static_cast<int>(playbackSpeed_ * 100.0f)) + "%";
+    RefreshFileList();
+    SetStatus(name.empty() ? "No TAS was open." : "TAS saved and closed: " + name + ".");
+    return true;
 }
 
 void TASPlugin::ToggleBallSpeed() {
@@ -265,28 +256,43 @@ void TASPlugin::ToggleTopBinAim() {
 void TASPlugin::OnSetVehicleInput(void* params) {
     if (params == nullptr) return;
     auto* input = static_cast<ControllerInput*>(params);
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        ++inputHookCalls_;
-    }
     if (!IsOffline()) return;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        ++offlineInputTicks_;
         if (mode_ == Mode::Recording) {
             frames_.push_back({*input});
         } else if (mode_ == Mode::Playing) {
-            playbackFrameAccumulator_ += playbackSpeed_;
-            const size_t steps = static_cast<size_t>(playbackFrameAccumulator_);
-            if (steps > 0) {
-                playbackFrameAccumulator_ -= static_cast<float>(steps);
-                const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
-                *input = frames_[lastFrame].input;
-                playhead_ = lastFrame + 1;
-                if (playhead_ >= frames_.size()) {
+            if (!playbackBaselineSet_) {
+                playbackBaselineInput_ = *input;
+                playbackBaselineSet_ = true;
+            } else if (InputsDiffer(*input, playbackBaselineInput_)) {
+                if (playhead_ < frames_.size()) frames_.resize(playhead_);
+                mode_ = Mode::Recording;
+                frames_.push_back({*input});
+                status_ = "Control taken. The unused future was removed; recording this new route.";
+            }
+
+            if (mode_ == Mode::Playing) {
+                if (frames_.empty()) {
                     mode_ = Mode::Idle;
-                    status_ = "Playback finished.";
+                    status_ = "This TAS has no recorded inputs yet.";
+                } else {
+                    playbackFrameAccumulator_ += playbackSpeed_;
+                    const size_t steps = static_cast<size_t>(playbackFrameAccumulator_);
+                    if (steps > 0) {
+                        playbackFrameAccumulator_ -= static_cast<float>(steps);
+                        const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
+                        playbackLastInput_ = frames_[lastFrame].input;
+                        *input = playbackLastInput_;
+                        playhead_ = lastFrame + 1;
+                        if (playhead_ >= frames_.size()) {
+                            mode_ = Mode::Recording;
+                            status_ = "Reached the saved endpoint. Continue playing; Finish / close saves it.";
+                        }
+                    } else {
+                        *input = playbackLastInput_;
+                    }
                 }
             }
         }
@@ -340,8 +346,27 @@ std::filesystem::path TASPlugin::DataPath(const std::string& name) const {
     return gameWrapper->GetDataFolder() / "TASPlugin" / file;
 }
 
-void TASPlugin::SaveFile(const std::string& name) {
-    if (!IsSafeFileName(name)) { SetStatus("Use a simple file name with letters, numbers, _ or -."); return; }
+void TASPlugin::RefreshFileList() {
+    std::vector<std::string> files;
+    std::error_code ec;
+    const auto folder = gameWrapper->GetDataFolder() / "TASPlugin";
+    if (std::filesystem::exists(folder, ec)) {
+        for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec) || it->path().extension() != ".tas") continue;
+            files.push_back(it->path().stem().string());
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!selectedFile_.empty() && std::find(files.begin(), files.end(), selectedFile_) == files.end())
+            files.push_back(selectedFile_);
+        std::sort(files.begin(), files.end());
+        tasFiles_ = std::move(files);
+    }
+}
+
+bool TASPlugin::SaveFile(const std::string& name) {
+    if (!IsSafeFileName(name)) { SetStatus("Use a simple file name with letters, numbers, _ or -."); return false; }
     ActorState car, ball;
     std::vector<Frame> frames;
     bool hasState = false;
@@ -354,12 +379,12 @@ void TASPlugin::SaveFile(const std::string& name) {
             frames = frames_;
         }
     }
-    if (!hasState) { SetStatus("Create a TAS and set its start point before saving."); return; }
+    if (!hasState) { SetStatus("Create a TAS and set its start point before saving."); return false; }
     const auto path = DataPath(name);
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream out(path, std::ios::trunc);
-    if (!out) { SetStatus("Could not create the TAS file."); return; }
+    if (!out) { SetStatus("Could not create the TAS file."); return false; }
     out << "TASPLUGIN,2\n" << std::setprecision(9);
     WriteActor(out, car); out << '\n';
     WriteActor(out, ball); out << '\n';
@@ -370,15 +395,15 @@ void TASPlugin::SaveFile(const std::string& name) {
             << i.DodgeForward << ',' << i.DodgeStrafe << ',' << i.Handbrake << ',' << i.Jump << ','
             << i.ActivateBoost << ',' << i.HoldingBoost << ',' << i.Jumped << '\n';
     }
-    if (!out) { SetStatus("TAS file write failed."); return; }
+    if (!out) { SetStatus("TAS file write failed."); return false; }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         selectedFile_ = name;
-        std::strncpy(fileInput_, name.c_str(), sizeof(fileInput_) - 1);
-        fileInput_[sizeof(fileInput_) - 1] = '\0';
         startCar_ = car; startBall_ = ball; hasStart_ = true; hasPendingStart_ = false;
     }
+    RefreshFileList();
     SetStatus("Saved " + path.filename().string() + " (" + std::to_string(frames.size()) + " frames).");
+    return true;
 }
 
 void TASPlugin::LoadFile(const std::string& name) {
@@ -409,23 +434,22 @@ void TASPlugin::LoadFile(const std::string& name) {
         std::lock_guard<std::mutex> lock(mutex_);
         frames_ = std::move(loaded); startCar_ = car; startBall_ = ball; hasStart_ = true;
         hasPendingStart_ = false; playhead_ = 0; mode_ = Mode::Idle; selectedFile_ = name;
-        std::strncpy(fileInput_, name.c_str(), sizeof(fileInput_) - 1);
-        fileInput_[sizeof(fileInput_) - 1] = '\0';
     }
+    RefreshFileList();
     SetStatus("Loaded " + name + " (" + std::to_string(count) + " frames).");
 }
 
 void TASPlugin::SetBind(int index, const std::string& key) {
-    if (index < 0 || index >= 8 || key.empty() || key.size() > 31 || !std::all_of(key.begin(), key.end(), [](unsigned char c) { return std::isalnum(c) || c == '='; })) { SetStatus("Could not read that key. Click Set bind, then press one key or mouse button."); return; }
+    if (index < 0 || index >= kBindCount || key.empty() || key.size() > 31 || !std::all_of(key.begin(), key.end(), [](unsigned char c) { return std::isalnum(c) || c == '='; })) { SetStatus("Could not read that key. Click Set bind, then press one key or mouse button."); return; }
     const std::string command = kBindCommands[index];
-    const std::string cvar = "tasplugin_bind_" + std::to_string(index);
+    const std::string cvar = "tasplugin_named_bind_" + std::to_string(index);
     const std::string oldKey = cvarManager->getCvar(cvar).getStringValue();
     gameWrapper->Execute([this, cvar, key, oldKey, command, index](GameWrapper*) {
         if (!oldKey.empty() && oldKey != key) {
             bool oldKeyUsedElsewhere = false;
-            for (int other = 0; other < 8; ++other) {
+            for (int other = 0; other < kBindCount; ++other) {
                 if (other == index) continue;
-                const std::string otherCvar = "tasplugin_bind_" + std::to_string(other);
+                const std::string otherCvar = "tasplugin_named_bind_" + std::to_string(other);
                 if (cvarManager->getCvar(otherCvar).getStringValue() == oldKey) {
                     oldKeyUsedElsewhere = true;
                     break;
@@ -492,58 +516,77 @@ void TASPlugin::SetStatus(const std::string& message) {
 void TASPlugin::RenderSettings() {
     const bool captureWasActiveAtFrameStart = bindCaptureIndex_ >= 0;
     ImGui::TextUnformatted("TAS PLUGIN");
-    ImGui::TextDisabled("Record, replay, update the start point, and manage TAS files.");
+    ImGui::TextDisabled("Create named shots, replay them, then branch or continue from any point.");
     ImGui::Separator();
     if (ImGui::BeginTabBar("tasplugin_tabs")) {
         if (ImGui::BeginTabItem("Shot controls")) {
-            if (ImGui::Button("New TAS / start recording")) gameWrapper->Execute([this](GameWrapper*) { NewShot(); });
+            if (newTasDialogRequested_.exchange(false)) ImGui::OpenPopup("Create New TAS");
+            if (ImGui::Button("New TAS")) ImGui::OpenPopup("Create New TAS");
             ImGui::SameLine();
-            if (ImGui::Button("Play / record")) gameWrapper->Execute([this](GameWrapper*) { StartOrReplay(); });
+            if (ImGui::Button("Play The Shot")) gameWrapper->Execute([this](GameWrapper*) { StartOrReplay(); });
             ImGui::SameLine();
-            if (ImGui::Button("Stop")) gameWrapper->Execute([this](GameWrapper*) { Stop(); });
-            if (ImGui::Button("Update next start point")) gameWrapper->Execute([this](GameWrapper*) { UpdateStartPoint(); });
-            ImGui::SameLine();
-            if (ImGui::Button("Undo last frame")) gameWrapper->Execute([this](GameWrapper*) { Undo(); });
-            ImGui::TextDisabled("New TAS stores the current car and ball state. Stop, then save from Files.");
-            std::lock_guard<std::mutex> lock(mutex_);
-            ImGui::Text("Frames: %d  |  SetVehicleInput hooks: %llu  |  Offline ticks: %llu",
-                static_cast<int>(frames_.size()),
-                static_cast<unsigned long long>(inputHookCalls_),
-                static_cast<unsigned long long>(offlineInputTicks_));
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Files")) {
-            ImGui::TextUnformatted("TAS files");
-            ImGui::TextDisabled("Files are saved in BakkesMod\\data\\TASPlugin.");
-            ImGui::SetNextItemWidth(220.0f);
-            ImGui::InputText("File name", fileInput_, sizeof(fileInput_));
-            ImGui::SameLine();
-            if (ImGui::Button("Save TAS")) {
-                const std::string name = fileInput_;
-                gameWrapper->Execute([this, name](GameWrapper*) { SaveFile(name); });
+            if (ImGui::Button("Finish / Close TAS")) gameWrapper->Execute([this](GameWrapper*) { CloseCurrentShot(); });
+
+            if (ImGui::BeginPopupModal("Create New TAS", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::TextUnformatted("Give this shot a name. Recording starts as soon as you create it.");
+                ImGui::SetNextItemWidth(280.0f);
+                ImGui::InputText("TAS name", newTasNameInput_, sizeof(newTasNameInput_));
+                if (ImGui::Button("Create and record")) {
+                    const std::string name = newTasNameInput_;
+                    gameWrapper->Execute([this, name](GameWrapper*) { NewShot(name); });
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Load TAS")) {
-                const std::string name = fileInput_;
-                gameWrapper->Execute([this, name](GameWrapper*) { LoadFile(name); });
+
+            std::vector<std::string> files;
+            std::string currentFile;
+            std::string modeLabel;
+            size_t frameCount = 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                files = tasFiles_;
+                currentFile = selectedFile_;
+                frameCount = frames_.size();
+                modeLabel = mode_ == Mode::Recording ? "Recording" : (mode_ == Mode::Playing ? "Playing" : "Stopped");
             }
-            ImGui::TextDisabled("Use .tas files created by this plugin. Loading replaces the current in-memory shot.");
+            const char* currentPreview = currentFile.empty() ? "Choose a TAS..." : currentFile.c_str();
+            if (ImGui::BeginCombo("Select Current TAS", currentPreview)) {
+                for (const auto& name : files) {
+                    const bool selected = name == currentFile;
+                    if (ImGui::Selectable(name.c_str(), selected) && !selected) {
+                        gameWrapper->Execute([this, name](GameWrapper*) {
+                            CloseCurrentShot();
+                            LoadFile(name);
+                        });
+                    }
+                    if (selected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::Text("Current TAS: %s  |  %s  |  %zu recorded frames",
+                currentFile.empty() ? "None" : currentFile.c_str(), modeLabel.c_str(), frameCount);
+            ImGui::TextWrapped("New TAS creates a separate named shot and records your inputs. Play The Shot replays from the beginning. Take control during playback to replace the unused future. Finish / Close TAS saves it.");
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Game settings")) {
-            ImGui::TextUnformatted("Offline game settings");
-            ImGui::TextDisabled("Uses Rocket League's game speed and the live ball velocity; no custom-match mutator screen.");
-            float replaySpeed;
-            float ballMultiplier;
+            ImGui::TextUnformatted("Playback and game settings");
+            ImGui::TextDisabled("Replay speed changes how quickly the recorded inputs advance. Adjust it while a shot is playing.");
+            float replaySpeed, ballMultiplier;
             bool topBin;
             { std::lock_guard<std::mutex> lock(mutex_); replaySpeed = playbackSpeed_; ballMultiplier = ballSpeedMultiplier_; topBin = topBinAim_; }
-            const char* replayLabel = replaySpeed < 0.75f ? "Replay speed: 0.5x" : (replaySpeed < 1.5f ? "Replay speed: 1x" : "Replay speed: 2x");
-            if (ImGui::Button(replayLabel)) cvarManager->executeCommand("tasplugin_playback_speed", false);
-            ImGui::SameLine();
+            ImGui::SetNextItemWidth(360.0f);
+            if (ImGui::SliderFloat("Replay input speed", &replaySpeed, 0.0f, 2.0f, "%.2fx")) {
+                replaySpeed = std::round(replaySpeed * 100.0f) / 100.0f;
+                std::lock_guard<std::mutex> lock(mutex_);
+                playbackSpeed_ = replaySpeed;
+            }
+            ImGui::TextDisabled("0.00x pauses TAS input playback. Rocket League's physics keep running.");
             if (ImGui::Button(ballMultiplier > 1.5f ? "Ball speed: 2x" : "Ball speed: 1x")) cvarManager->executeCommand("tasplugin_toggle_ball_speed", false);
             ImGui::SameLine();
             if (ImGui::Button(topBin ? "Top-bin aim: ON" : "Top-bin aim: OFF")) cvarManager->executeCommand("tasplugin_toggle_topbin_aim", false);
-            ImGui::TextDisabled("The replay speed button cycles 0.5x → 1x → 2x → 0.5x.");
             const char* speeds[] = {"0.5x", "1x", "2x"};
             int speedChoice = gameSpeed_ < 0.75f ? 0 : (gameSpeed_ < 1.5f ? 1 : 2);
             if (ImGui::Combo("Game speed", &speedChoice, speeds, 3)) {
@@ -559,8 +602,8 @@ void TASPlugin::RenderSettings() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Binds")) {
-            ImGui::TextDisabled("Click Set bind, then press the key or mouse button you want. HyperX side buttons are Mouse4 and Mouse5.");
-            for (int i = 0; i < 8; ++i) {
+            ImGui::TextDisabled("Click Set bind, then press a key or mouse button. Mouse4 and Mouse5 are side buttons.");
+            for (int i = 0; i < kBindCount; ++i) {
                 ImGui::PushID(i);
                 ImGui::TextUnformatted(kBindLabels[i]); ImGui::SameLine(270.0f);
                 ImGui::Text("%s", bindInput_[i]); ImGui::SameLine(390.0f);
@@ -575,8 +618,8 @@ void TASPlugin::RenderSettings() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("About")) {
-            ImGui::TextWrapped("TASPlugin records and replays controller inputs through Rocket League's SetVehicleInput physics hook and restores the saved car and ball start state. It is restricted to offline Free Play and Custom Training.");
-            ImGui::TextWrapped("This is an independent plugin implementation. Files made by the original TAS plugin are not compatible.");
+            ImGui::TextWrapped("Each named TAS stores its start state and controller inputs. Playback is restricted to offline Free Play and Custom Training.");
+            ImGui::TextWrapped("TAS files are saved automatically when you finish and close a shot. Original TAS Plugin files are not compatible.");
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
