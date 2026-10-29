@@ -54,11 +54,11 @@ private:
     float playbackFrameAccumulator_ = 0.0f;
     ControllerInput playbackBaselineInput_{};
     ControllerInput playbackLastInput_{};
-    ActorState playbackLastBallState_{};
-    bool playbackLastBallStateValid_ = false;
     bool playbackBaselineSet_ = false;
     ControllerInput lastLiveInput_{};
     bool hasLastLiveInput_ = false;
+    ActorState lastRecordedBallState_{};
+    bool hasLastRecordedBallState_ = false;
     float gameSpeed_ = 1.0f;
     float topBinThresholdKph_ = 110.0f;
     float ballSpeedMultiplier_ = 1.0f;
@@ -81,6 +81,7 @@ private:
     bool CloseCurrentShot();
     void StartOrReplay();
     void ToggleBallSpeed();
+    void SaveCurrentTas();
     void CaptureBindInput();
     bool SaveFile(const std::string& name);
     void LoadFile(const std::string& name);
