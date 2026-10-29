@@ -12,6 +12,16 @@ jobs:
         shell: pwsh
         run: |
           git clone --depth 1 https://github.com/bakkesmodorg/BakkesModSDK.git bakkesmodsdk
+      - name: Install BakkesMod ImGui headers
+        shell: pwsh
+        run: |
+          $archive = "bakkesmodsdk\imgui_bm.zip"
+          if (-not (Test-Path $archive)) { throw "SDK imgui_bm.zip not found" }
+          Expand-Archive -LiteralPath $archive -DestinationPath "imgui-unpacked" -Force
+          $header = Get-ChildItem "imgui-unpacked" -Recurse -Filter "imgui.h" | Select-Object -First 1
+          if (-not $header) { throw "imgui.h not found in SDK ImGui archive" }
+          New-Item -ItemType Directory -Force "bakkesmodsdk\include\imgui" | Out-Null
+          Copy-Item "$($header.Directory.FullName)\*" "bakkesmodsdk\include\imgui" -Recurse -Force
       - name: Build x64 Release
         shell: cmd
         run: |
@@ -36,5 +46,3 @@ jobs:
         with:
           name: RLTAS-BakkesMod
           path: out/*
-
-# trigger build
