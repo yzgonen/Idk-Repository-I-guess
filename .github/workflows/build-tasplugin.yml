@@ -1,0 +1,47 @@
+name: Build TASPlugin DLL
+
+on:
+  push:
+    branches: [tas-workbench-clean-build]
+    paths:
+      - "TASPlugin/**"
+      - ".github/workflows/build-tasplugin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get BakkesMod SDK
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/bakkesmodorg/BakkesModSDK.git bakkesmodsdk
+      - name: Build x64 Release
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvars64.bat"
+          set BAKKESMODSDK=%CD%\\bakkesmodsdk
+          msbuild TASPlugin\\TASPlugin.vcxproj /m /p:Configuration=Release /p:Platform=x64
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          $dll = Get-ChildItem TASPlugin -Recurse -Filter TASPlugin.dll | Select-Object -First 1
+          if (-not $dll) { throw "TASPlugin.dll not found" }
+          Copy-Item $dll.FullName out/TASPlugin.dll
+          @"
+          Install:
+          1. Close Rocket League.
+          2. Copy TASPlugin.dll to %APPDATA%\\bakkesmod\\bakkesmod\\plugins\\
+          3. Start Rocket League and open BakkesMod (F2).
+          4. In the F6 console, run: plugin load TASPlugin
+          5. Open F2 -> Plugins -> TAS Plugin.
+          "@ | Set-Content out/INSTALL.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TASPlugin-DLL
+          path: out/*
+          if-no-files-found: error
