@@ -29,7 +29,7 @@ public:
     struct Frame { ControllerInput input{}; };
 
 private:
-    enum class Mode { Idle, Recording, Playing };
+    enum class Mode { Idle, Recording, Playing, AtEndpoint };
     mutable std::mutex mutex_;
     Mode mode_ = Mode::Idle;
     std::vector<Frame> frames_;
