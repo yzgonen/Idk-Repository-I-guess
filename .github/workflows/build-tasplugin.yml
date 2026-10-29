@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -54,6 +54,19 @@ jobs:
           4. In the F6 console, run: plugin load TASPlugin
           5. Open F2 -> Plugins -> TAS Plugin.
           "@ | Set-Content out/INSTALL.txt
+      - name: Publish DLL in repository
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force downloads | Out-Null
+          Copy-Item "out/TASPlugin.dll" "downloads/TASPlugin.dll" -Force
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/TASPlugin.dll
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "Publish current TASPlugin DLL"
+            git push
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: TASPlugin-DLL
