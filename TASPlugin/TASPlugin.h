@@ -42,11 +42,13 @@ private:
     ActorState pendingCar_{}, pendingBall_{};
     bool hasStart_ = false;
     bool hasPendingStart_ = false;
+    size_t startFrameIndex_ = 0;
+    bool completePlayback_ = false;
     std::string status_ = "Ready";
     std::string selectedFile_;
     std::vector<std::string> tasFiles_;
     char newTasNameInput_[128] = "shot";
-    char bindInput_[5][32] = {{"F7"}, {"F8"}, {"Mouse4"}, {"B"}, {"T"}};
+    char bindInput_[8][32] = {{"F7"}, {"F8"}, {"Mouse4"}, {"B"}, {"F9"}, {"F10"}, {"F11"}, {"F12"}};
     std::atomic_bool newTasDialogRequested_{false};
     int bindCaptureIndex_ = -1;
     bool keyWasDown_[256]{};
@@ -80,6 +82,10 @@ private:
     void RecordFromStart();
     bool CloseCurrentShot();
     void StartOrReplay();
+    void PlayCompleteShot();
+    void UpdateStartPoint();
+    void DeleteCurrentTas();
+    void OnGoalScored();
     void ToggleBallSpeed();
     void SaveCurrentTas();
     void CaptureBindInput();
