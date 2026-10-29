@@ -534,21 +534,6 @@ void TASPlugin::RenderSettings() {
                     cvarManager->executeCommand("writeconfig", false);
                 });
             }
-            const char* ballSpeeds[] = {"1x", "2x"};
-            int ballChoice = ballSpeedMultiplier_ > 1.5f ? 1 : 0;
-            if (ImGui::Combo("Ball speed", &ballChoice, ballSpeeds, 2)) {
-                const float multiplier = ballChoice == 1 ? 2.0f : 1.0f;
-                { std::lock_guard<std::mutex> lock(mutex_); ballSpeedMultiplier_ = multiplier; }
-                cvarManager->getCvar("tasplugin_ball_speed").setValue(multiplier);
-                cvarManager->executeCommand("writeconfig", false);
-            }
-            bool topBinChoice = false;
-            { std::lock_guard<std::mutex> lock(mutex_); topBinChoice = topBinAim_; }
-            if (ImGui::Checkbox("Top-bin aim assist (offline)", &topBinChoice)) {
-                { std::lock_guard<std::mutex> lock(mutex_); topBinAim_ = topBinChoice; }
-                cvarManager->getCvar("tasplugin_topbin_aim").setValue(topBinChoice ? 1 : 0);
-                cvarManager->executeCommand("writeconfig", false);
-            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Binds")) {
