@@ -54,7 +54,7 @@ private:
     ControllerInput lastLiveInput_{};
     bool hasLastLiveInput_ = false;
     float gameSpeed_ = 1.0f;
-    bool topBinAim_ = false;
+    float topBinThresholdKph_ = 110.0f;
     float ballSpeedMultiplier_ = 1.0f;
     Vector previousBallVelocity_{};
 
@@ -70,7 +70,6 @@ private:
     bool CloseCurrentShot();
     void StartOrReplay();
     void ToggleBallSpeed();
-    void ToggleTopBinAim();
     void CaptureBindInput();
     bool SaveFile(const std::string& name);
     void LoadFile(const std::string& name);
