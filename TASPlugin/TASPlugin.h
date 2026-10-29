@@ -66,6 +66,7 @@ private:
     void RegisterCommands();
     void RequestNewShotDialog();
     void NewShot(const std::string& name);
+    void RecordFromStart();
     bool CloseCurrentShot();
     void StartOrReplay();
     void ToggleBallSpeed();
