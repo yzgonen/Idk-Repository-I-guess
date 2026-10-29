@@ -931,10 +931,10 @@ void TASPlugin::RenderSettings() {
             ImGui::SameLine();
             if (ImGui::Button("Play The Shot")) gameWrapper->Execute([this](GameWrapper*) { StartOrReplay(); });
             ImGui::SameLine();
+            if (ImGui::Button("Play Complete Shot")) gameWrapper->Execute([this](GameWrapper*) { PlayCompleteShot(); });
             if (ImGui::Button("Record from start")) gameWrapper->Execute([this](GameWrapper*) { RecordFromStart(); });
             ImGui::SameLine();
             if (ImGui::Button("Save")) gameWrapper->Execute([this](GameWrapper*) { SaveCurrentTas(); });
-            if (ImGui::Button("Play Complete Shot")) gameWrapper->Execute([this](GameWrapper*) { PlayCompleteShot(); });
             ImGui::SameLine();
             if (ImGui::Button("Update Start Point")) gameWrapper->Execute([this](GameWrapper*) { UpdateStartPoint(); });
             ImGui::SameLine();
