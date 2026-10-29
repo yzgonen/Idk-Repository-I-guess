@@ -84,6 +84,7 @@ private:
     bool CloseCurrentShot();
     void StartOrReplay();
     void PlayCompleteShot();
+    void StartPlayback(bool completeShot);
     void UpdateStartPoint();
     void DeleteCurrentTas();
     void OnGoalScored();
