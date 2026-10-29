@@ -51,6 +51,8 @@ private:
     ControllerInput playbackBaselineInput_{};
     ControllerInput playbackLastInput_{};
     bool playbackBaselineSet_ = false;
+    ControllerInput lastLiveInput_{};
+    bool hasLastLiveInput_ = false;
     float gameSpeed_ = 1.0f;
     bool topBinAim_ = false;
     float ballSpeedMultiplier_ = 1.0f;
