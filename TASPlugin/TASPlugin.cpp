@@ -175,7 +175,7 @@ void TASPlugin::NewShot(const std::string& name) {
     }
     // Write an empty shot immediately so it appears in the selector and remains
     // available even before the user records any inputs.
-    SaveFile(canonicalName);
+    if (!SaveFile(canonicalName)) return;
     RefreshFileList();
     SetStatus("Created and selected " + canonicalName + ". Use Record from start to record, or Play The Shot to replay it.");
 }
