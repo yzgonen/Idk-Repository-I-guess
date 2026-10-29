@@ -17,13 +17,14 @@ BAKKESMOD_PLUGIN(TASPlugin, "TAS Plugin", "2.0.0", PLUGINTYPE_FREEPLAY)
 namespace {
 constexpr const char* kInputEvent = "Function TAGame.Car_TA.SetVehicleInput";
 constexpr int kBindCount = 5;
+constexpr int kBindCvarIndices[kBindCount] = {0, 1, 2, 3, 5};
 constexpr const char* kBindCommands[kBindCount] = {
     "tasplugin_new", "tasplugin_play", "tasplugin_stop",
-    "tasplugin_toggle_ball_speed", "tasplugin_toggle_topbin_aim"
+    "tasplugin_toggle_ball_speed", "tasplugin_record"
 };
 constexpr const char* kBindLabels[] = {
     "New TAS", "Play The Shot", "Finish / close current TAS",
-    "Toggle ball speed (1x / 2x)", "Toggle top-bin aim"
+    "Toggle ball speed (1x / 2x)", "Record from start"
 };
 
 float Length(const Vector& v) { return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z); }
@@ -59,14 +60,14 @@ bool ReadActor(std::istream& in, TASPlugin::ActorState& a) {
 void TASPlugin::onLoad() {
     cvarManager->registerCvar("tasplugin_gamespeed", "1.0", "Rocket League game speed", true, true, 0.5f, true, 2.0f);
     cvarManager->registerCvar("tasplugin_ball_speed", "1.0", "Ball velocity multiplier", true, true, 1.0f, true, 2.0f);
-    cvarManager->registerCvar("tasplugin_topbin_aim", "0", "Offline top-bin aim assist", true, true, 0, true, 1);
+    cvarManager->registerCvar("tasplugin_topbin_min_kph", "110", "Top-bin aim minimum ball speed in km/h", true, true, 0.0f, true, 300.0f);
     gameSpeed_ = cvarManager->getCvar("tasplugin_gamespeed").getFloatValue();
     ballSpeedMultiplier_ = cvarManager->getCvar("tasplugin_ball_speed").getFloatValue();
-    topBinAim_ = cvarManager->getCvar("tasplugin_topbin_aim").getBoolValue();
+    topBinThresholdKph_ = cvarManager->getCvar("tasplugin_topbin_min_kph").getFloatValue();
     RegisterCommands();
-    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "B", "T"};
+    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "B", "F9"};
     for (int i = 0; i < kBindCount; ++i) {
-        const std::string cvar = "tasplugin_named_bind_" + std::to_string(i);
+        const std::string cvar = "tasplugin_named_bind_" + std::to_string(kBindCvarIndices[i]);
         cvarManager->registerCvar(cvar, defaultBinds[i], "TAS Plugin bind");
         const std::string key = cvarManager->getCvar(cvar).getStringValue();
         std::strncpy(bindInput_[i], key.c_str(), sizeof(bindInput_[i]) - 1);
@@ -137,7 +138,7 @@ void TASPlugin::RegisterCommands() {
     cvarManager->registerNotifier("tasplugin_play", [this](std::vector<std::string>) { StartOrReplay(); }, "Replay the loaded TAS from the beginning", PERMISSION_ALL);
     cvarManager->registerNotifier("tasplugin_stop", [this](std::vector<std::string>) { CloseCurrentShot(); }, "Finish and save the current TAS", PERMISSION_ALL);
     cvarManager->registerNotifier("tasplugin_toggle_ball_speed", [this](std::vector<std::string>) { ToggleBallSpeed(); }, "Toggle ball speed between 1x and 2x", PERMISSION_ALL);
-    cvarManager->registerNotifier("tasplugin_toggle_topbin_aim", [this](std::vector<std::string>) { ToggleTopBinAim(); }, "Toggle offline top-bin aim assist", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_record", [this](std::vector<std::string>) { RecordFromStart(); }, "Record a new take from the selected TAS start", PERMISSION_ALL);
 }
 
 void TASPlugin::RequestNewShotDialog() {
@@ -261,18 +262,6 @@ void TASPlugin::ToggleBallSpeed() {
     cvarManager->executeCommand("writeconfig", false);
 }
 
-void TASPlugin::ToggleTopBinAim() {
-    bool enabled;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        topBinAim_ = !topBinAim_;
-        enabled = topBinAim_;
-        status_ = enabled ? "Top-bin aim assist enabled." : "Top-bin aim assist disabled.";
-    }
-    cvarManager->getCvar("tasplugin_topbin_aim").setValue(enabled ? 1 : 0);
-    cvarManager->executeCommand("writeconfig", false);
-}
-
 void TASPlugin::OnSetVehicleInput(void* params) {
     if (params == nullptr) return;
     auto* input = static_cast<ControllerInput*>(params);
@@ -335,11 +324,11 @@ void TASPlugin::ApplyBallOptions() {
     if (ball.IsNull()) return;
     Vector velocity = ball.GetVelocity();
     float ballMultiplier = 1.0f;
-    bool topBin = false;
+    float topBinThresholdKph = 110.0f;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         ballMultiplier = ballSpeedMultiplier_;
-        topBin = topBinAim_;
+        topBinThresholdKph = topBinThresholdKph_;
     }
     const float oldSpeed = Length(previousBallVelocity_);
     float newSpeed = Length(velocity);
@@ -348,15 +337,25 @@ void TASPlugin::ApplyBallOptions() {
         ball.SetVelocity(velocity);
         newSpeed *= ballMultiplier;
     }
-    if (topBin && std::fabs(newSpeed - oldSpeed) > 1500.0f && newSpeed > 1000.0f) {
+    const float speedKph = newSpeed * 0.036f;
+    if (speedKph >= topBinThresholdKph && std::fabs(velocity.Y) > 1.0f) {
         const Vector loc = ball.GetLocation();
         const float goalY = velocity.Y >= 0.0f ? 5120.0f : -5120.0f;
-        const float goalX = loc.X >= 0.0f ? 850.0f : -850.0f;
-        Vector direction{goalX - loc.X, goalY - loc.Y, 620.0f - loc.Z};
-        const float length = Length(direction);
-        if (length > 1.0f) {
-            velocity = Scale(direction, newSpeed / length);
-            ball.SetVelocity(velocity);
+        const float timeToGoal = (goalY - loc.Y) / velocity.Y;
+        // Only assist balls whose current trajectory is actually projected into
+        // the goal mouth. The aim then pulls that shot toward a high corner.
+        if (timeToGoal > 0.0f && timeToGoal < 4.0f) {
+            const float projectedX = loc.X + velocity.X * timeToGoal;
+            const float projectedZ = loc.Z + velocity.Z * timeToGoal;
+            if (std::fabs(projectedX) < 1100.0f && projectedZ > -100.0f && projectedZ < 850.0f) {
+                const float goalX = projectedX >= 0.0f ? 850.0f : -850.0f;
+                Vector direction{goalX - loc.X, goalY - loc.Y, 620.0f - loc.Z};
+                const float length = Length(direction);
+                if (length > 1.0f) {
+                    velocity = Scale(direction, newSpeed / length);
+                    ball.SetVelocity(velocity);
+                }
+            }
         }
     }
     previousBallVelocity_ = velocity;
@@ -472,14 +471,14 @@ void TASPlugin::LoadFile(const std::string& name) {
 void TASPlugin::SetBind(int index, const std::string& key) {
     if (index < 0 || index >= kBindCount || key.empty() || key.size() > 31 || !std::all_of(key.begin(), key.end(), [](unsigned char c) { return std::isalnum(c) || c == '='; })) { SetStatus("Could not read that key. Click Set bind, then press one key or mouse button."); return; }
     const std::string command = kBindCommands[index];
-    const std::string cvar = "tasplugin_named_bind_" + std::to_string(index);
+    const std::string cvar = "tasplugin_named_bind_" + std::to_string(kBindCvarIndices[index]);
     const std::string oldKey = cvarManager->getCvar(cvar).getStringValue();
     gameWrapper->Execute([this, cvar, key, oldKey, command, index](GameWrapper*) {
         if (!oldKey.empty() && oldKey != key) {
             bool oldKeyUsedElsewhere = false;
             for (int other = 0; other < kBindCount; ++other) {
                 if (other == index) continue;
-                const std::string otherCvar = "tasplugin_named_bind_" + std::to_string(other);
+                const std::string otherCvar = "tasplugin_named_bind_" + std::to_string(kBindCvarIndices[other]);
                 if (cvarManager->getCvar(otherCvar).getStringValue() == oldKey) {
                     oldKeyUsedElsewhere = true;
                     break;
@@ -613,8 +612,8 @@ void TASPlugin::RenderSettings() {
             ImGui::TextUnformatted("Playback and game settings");
             ImGui::TextDisabled("Replay speed changes how quickly the recorded inputs advance. Adjust it while a shot is playing.");
             float replaySpeed, ballMultiplier;
-            bool topBin;
-            { std::lock_guard<std::mutex> lock(mutex_); replaySpeed = playbackSpeed_; ballMultiplier = ballSpeedMultiplier_; topBin = topBinAim_; }
+            float topBinThresholdKph;
+            { std::lock_guard<std::mutex> lock(mutex_); replaySpeed = playbackSpeed_; ballMultiplier = ballSpeedMultiplier_; topBinThresholdKph = topBinThresholdKph_; }
             ImGui::SetNextItemWidth(360.0f);
             if (ImGui::SliderFloat("Replay input speed", &replaySpeed, 0.0f, 2.0f, "%.2fx")) {
                 replaySpeed = std::round(replaySpeed * 100.0f) / 100.0f;
@@ -623,8 +622,19 @@ void TASPlugin::RenderSettings() {
             }
             ImGui::TextDisabled("0.00x pauses TAS input playback. Rocket League's physics keep running.");
             if (ImGui::Button(ballMultiplier > 1.5f ? "Ball speed: 2x" : "Ball speed: 1x")) cvarManager->executeCommand("tasplugin_toggle_ball_speed", false);
-            ImGui::SameLine();
-            if (ImGui::Button(topBin ? "Top-bin aim: ON" : "Top-bin aim: OFF")) cvarManager->executeCommand("tasplugin_toggle_topbin_aim", false);
+            ImGui::TextDisabled("Top-bin aim is automatic when the ball is heading into the goal and reaches the speed below.");
+            ImGui::SetNextItemWidth(360.0f);
+            if (ImGui::SliderFloat("Top-bin trigger speed", &topBinThresholdKph, 0.0f, 300.0f, "%.0f km/h")) {
+                topBinThresholdKph = std::round(topBinThresholdKph);
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    topBinThresholdKph_ = topBinThresholdKph;
+                }
+                gameWrapper->Execute([this, topBinThresholdKph](GameWrapper*) {
+                    cvarManager->getCvar("tasplugin_topbin_min_kph").setValue(topBinThresholdKph);
+                    cvarManager->executeCommand("writeconfig", false);
+                });
+            }
             ImGui::TextDisabled("Drag to set Rocket League game speed (0.50x to 2.00x).");
             ImGui::SetNextItemWidth(360.0f);
             if (ImGui::SliderFloat("Game speed", &gameSpeed_, 0.5f, 2.0f, "%.2fx")) {
