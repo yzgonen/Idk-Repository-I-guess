@@ -260,16 +260,18 @@ void TASPlugin::OnSetVehicleInput(void* params) {
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        const ControllerInput liveInput = *input;
         if (mode_ == Mode::Recording) {
-            frames_.push_back({*input});
+            frames_.push_back({liveInput});
         } else if (mode_ == Mode::Playing) {
             if (!playbackBaselineSet_) {
-                playbackBaselineInput_ = *input;
+                playbackBaselineInput_ = hasLastLiveInput_ ? lastLiveInput_ : liveInput;
                 playbackBaselineSet_ = true;
-            } else if (InputsDiffer(*input, playbackBaselineInput_)) {
+            }
+            if (InputsDiffer(liveInput, playbackBaselineInput_)) {
                 if (playhead_ < frames_.size()) frames_.resize(playhead_);
                 mode_ = Mode::Recording;
-                frames_.push_back({*input});
+                frames_.push_back({liveInput});
                 status_ = "Control taken. The unused future was removed; recording this new route.";
             }
 
@@ -296,6 +298,8 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                 }
             }
         }
+        lastLiveInput_ = liveInput;
+        hasLastLiveInput_ = true;
     }
     ApplyBallOptions();
 }
