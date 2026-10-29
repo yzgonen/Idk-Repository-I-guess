@@ -45,13 +45,14 @@ void TASPlugin::onLoad() {
     gameSpeed_ = cvarManager->getCvar("tasplugin_gamespeed").getFloatValue();
     ballSpeedMultiplier_ = cvarManager->getCvar("tasplugin_ball_speed").getFloatValue();
     topBinAim_ = cvarManager->getCvar("tasplugin_topbin_aim").getBoolValue();
-    const char* defaultBinds[] = {"F7", "F8", "F9", "F10"};
+    const char* defaultBinds[] = {"F7", "F8", "Mouse4", "Mouse5"};
     for (int i = 0; i < 4; ++i) {
         const std::string cvar = "tasplugin_bind_" + std::to_string(i);
         cvarManager->registerCvar(cvar, defaultBinds[i], "TAS Plugin bind");
         const std::string key = cvarManager->getCvar(cvar).getStringValue();
         std::strncpy(bindInput_[i], key.c_str(), sizeof(bindInput_[i]) - 1);
         bindInput_[i][sizeof(bindInput_[i]) - 1] = '\0';
+        cvarManager->executeCommand("bind " + key + " \"" + kBindCommands[i] + "\"", false);
     }
     RegisterCommands();
     gameWrapper->HookEvent(kMoveEvent, [this](std::string) { ApplyPlaybackInput(); });
@@ -284,10 +285,18 @@ void TASPlugin::SaveFile(const std::string& name) {
     std::vector<Frame> frames;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (!hasStart_ && !hasPendingStart_) { SetStatus("Create a TAS and set its start point before saving."); return; }
-        car = hasPendingStart_ ? pendingCar_ : startCar_;
-        ball = hasPendingStart_ ? pendingBall_ : startBall_;
-        frames = frames_;
+        if (hasStart_ || hasPendingStart_) {
+            car = hasPendingStart_ ? pendingCar_ : startCar_;
+            ball = hasPendingStart_ ? pendingBall_ : startBall_;
+            frames = frames_;
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!hasStart_ && !hasPendingStart_) {
+            status_ = "Create a TAS and set its start point before saving.";
+            return;
+        }
     }
     const auto path = DataPath(name);
     std::error_code ec;
@@ -407,16 +416,23 @@ void TASPlugin::RenderSettings() {
             if (ImGui::Combo("Game speed", &speedChoice, speeds, 3)) {
                 const float values[] = {0.5f, 1.0f, 2.0f};
                 gameSpeed_ = values[speedChoice];
-                gameWrapper->Execute([this](GameWrapper*) { cvarManager->getCvar("sv_soccar_gamespeed").setValue(gameSpeed_); });
+                gameWrapper->Execute([this](GameWrapper*) {
+                    cvarManager->getCvar("sv_soccar_gamespeed").setValue(gameSpeed_);
+                    cvarManager->getCvar("tasplugin_gamespeed").setValue(gameSpeed_);
+                    cvarManager->executeCommand("writeconfig", false);
+                });
             }
             const char* ballSpeeds[] = {"1x", "2x"};
             int ballChoice = ballSpeedMultiplier_ > 1.5f ? 1 : 0;
             if (ImGui::Combo("Ball speed", &ballChoice, ballSpeeds, 2)) {
                 ballSpeedMultiplier_ = ballChoice == 1 ? 2.0f : 1.0f;
                 cvarManager->getCvar("tasplugin_ball_speed").setValue(ballSpeedMultiplier_);
+                cvarManager->executeCommand("writeconfig", false);
             }
-            if (ImGui::Checkbox("Top-bin aim assist (offline)", &topBinAim_))
+            if (ImGui::Checkbox("Top-bin aim assist (offline)", &topBinAim_)) {
                 cvarManager->getCvar("tasplugin_topbin_aim").setValue(topBinAim_ ? 1 : 0);
+                cvarManager->executeCommand("writeconfig", false);
+            }
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Binds")) {
