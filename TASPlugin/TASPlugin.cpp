@@ -227,6 +227,8 @@ void TASPlugin::StartOrReplay() {
         playbackFrameAccumulator_ = 0.0f;
         playbackBaselineSet_ = false;
         playbackLastInput_ = frames_.front().input;
+        playbackLastBallState_ = frames_.front().ball;
+        playbackLastBallStateValid_ = frames_.front().hasBallState;
     }
     RestoreStart();
     SetStatus("Playing The Shot from the beginning. Take control to branch the shot.");
@@ -279,15 +281,28 @@ void TASPlugin::OnSetVehicleInput(void* params) {
     auto* input = static_cast<ControllerInput*>(params);
     if (!IsOffline()) return;
 
+    // Snapshot the ball on the same input tick. This also captures direct
+    // Freeplay actions (for example reset/launch bindings) that bypass the
+    // controller input structure entirely.
+    ActorState liveBallState{};
+    bool hasLiveBallState = false;
+    BallWrapper liveBall = gameWrapper->GetCurrentGameState().GetBall();
+    if (!liveBall.IsNull()) {
+        liveBallState = {liveBall.GetLocation(), liveBall.GetRotation(), liveBall.GetVelocity(), liveBall.GetAngularVelocity()};
+        hasLiveBallState = true;
+    }
+
+    ActorState ballStateToRestore{};
+    bool restoreBallState = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const ControllerInput liveInput = *input;
         if (mode_ == Mode::Recording) {
-            frames_.push_back({liveInput});
+            frames_.push_back({liveInput, liveBallState, hasLiveBallState});
         } else if (mode_ == Mode::AtEndpoint) {
             if (InputsDiffer(liveInput, playbackBaselineInput_)) {
                 mode_ = Mode::Recording;
-                frames_.push_back({liveInput});
+                frames_.push_back({liveInput, liveBallState, hasLiveBallState});
                 status_ = "Control resumed at the endpoint. Recording your continuation.";
             }
         } else if (mode_ == Mode::Playing) {
@@ -298,7 +313,7 @@ void TASPlugin::OnSetVehicleInput(void* params) {
             if (InputsDiffer(liveInput, playbackBaselineInput_)) {
                 if (playhead_ < frames_.size()) frames_.resize(playhead_);
                 mode_ = Mode::Recording;
-                frames_.push_back({liveInput});
+                frames_.push_back({liveInput, liveBallState, hasLiveBallState});
                 status_ = "Control taken. The unused future was removed; recording this new route.";
             }
 
@@ -313,6 +328,8 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                         playbackFrameAccumulator_ -= static_cast<float>(steps);
                         const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
                         playbackLastInput_ = frames_[lastFrame].input;
+                        playbackLastBallState_ = frames_[lastFrame].ball;
+                        playbackLastBallStateValid_ = frames_[lastFrame].hasBallState;
                         *input = playbackLastInput_;
                         playhead_ = lastFrame + 1;
                         if (playhead_ >= frames_.size()) {
@@ -322,11 +339,21 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                     } else {
                         *input = playbackLastInput_;
                     }
+                    if (playbackLastBallStateValid_) {
+                        ballStateToRestore = playbackLastBallState_;
+                        restoreBallState = true;
+                    }
                 }
             }
         }
         lastLiveInput_ = liveInput;
         hasLastLiveInput_ = true;
+    }
+    if (restoreBallState && !liveBall.IsNull()) {
+        liveBall.SetLocation(ballStateToRestore.location);
+        liveBall.SetRotation(ballStateToRestore.rotation);
+        liveBall.SetVelocity(ballStateToRestore.velocity);
+        liveBall.SetAngularVelocity(ballStateToRestore.angularVelocity, false);
     }
     ApplyBallOptions();
 }
@@ -512,7 +539,7 @@ bool TASPlugin::SaveFile(const std::string& name) {
     std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream out(path, std::ios::trunc);
     if (!out) { SetStatus("Could not create the TAS file."); return false; }
-    out << "TASPLUGIN,2\n" << std::setprecision(9);
+    out << "TASPLUGIN,3\n" << std::setprecision(9);
     WriteActor(out, car); out << '\n';
     WriteActor(out, ball); out << '\n';
     out << frames.size() << '\n';
@@ -520,7 +547,9 @@ bool TASPlugin::SaveFile(const std::string& name) {
         const auto& i = frame.input;
         out << i.Throttle << ',' << i.Steer << ',' << i.Pitch << ',' << i.Yaw << ',' << i.Roll << ','
             << i.DodgeForward << ',' << i.DodgeStrafe << ',' << i.Handbrake << ',' << i.Jump << ','
-            << i.ActivateBoost << ',' << i.HoldingBoost << ',' << i.Jumped << '\n';
+            << i.ActivateBoost << ',' << i.HoldingBoost << ',' << i.Jumped << ',' << frame.hasBallState;
+        if (frame.hasBallState) { out << ','; WriteActor(out, frame.ball); }
+        out << '\n';
     }
     if (!out) { SetStatus("TAS file write failed."); return false; }
     {
@@ -539,14 +568,15 @@ void TASPlugin::LoadFile(const std::string& name) {
     std::string header;
     ActorState car, ball;
     size_t count = 0;
-    if (!std::getline(in, header) || header != "TASPLUGIN,2" || !ReadActor(in, car) || !ReadActor(in, ball) || !(in >> count) || count > 2000000) {
+    if (!std::getline(in, header) || (header != "TASPLUGIN,2" && header != "TASPLUGIN,3") || !ReadActor(in, car) || !ReadActor(in, ball) || !(in >> count) || count > 2000000) {
         SetStatus("Could not load this TAS file or its format is invalid."); return;
     }
+    const bool hasFrameBallStates = header == "TASPLUGIN,3";
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::vector<Frame> loaded;
     loaded.reserve(count);
     for (size_t n = 0; n < count; ++n) {
-        Frame f; char comma = 0; unsigned long handbrake=0, jump=0, boost=0, holding=0, jumped=0;
+        Frame f; char comma = 0; unsigned long handbrake=0, jump=0, boost=0, holding=0, jumped=0, hasFrameBall=0;
         auto& i = f.input;
         if (!(in >> i.Throttle >> comma >> i.Steer >> comma >> i.Pitch >> comma >> i.Yaw >> comma >> i.Roll >> comma
             >> i.DodgeForward >> comma >> i.DodgeStrafe >> comma >> handbrake >> comma >> jump >> comma >> boost
@@ -554,6 +584,13 @@ void TASPlugin::LoadFile(const std::string& name) {
             SetStatus("TAS file ended before all frames were read."); return;
         }
         i.Handbrake = handbrake != 0; i.Jump = jump != 0; i.ActivateBoost = boost != 0; i.HoldingBoost = holding != 0; i.Jumped = jumped != 0;
+        if (hasFrameBallStates) {
+            if (!(in >> comma >> hasFrameBall)) { SetStatus("TAS file ended before all ball states were read."); return; }
+            f.hasBallState = hasFrameBall != 0;
+            if (f.hasBallState) {
+                if (!(in >> comma) || !ReadActor(in, f.ball)) { SetStatus("TAS file contains an invalid ball state."); return; }
+            }
+        }
         loaded.push_back(f);
         in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     }
