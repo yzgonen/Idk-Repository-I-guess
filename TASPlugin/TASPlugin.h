@@ -26,7 +26,10 @@ public:
         Vector velocity{};
         Vector angularVelocity{};
     };
-    struct Frame { ControllerInput input{}; };
+    // Alongside controller input, retain the live ball state for this tick.
+    // Freeplay bindings from other plugins mutate the ball directly and do not
+    // pass through SetVehicleInput, so input-only TAS recordings miss them.
+    struct Frame { ControllerInput input{}; ActorState ball{}; bool hasBallState = false; };
 
 private:
     enum class Mode { Idle, Recording, Playing, AtEndpoint };
@@ -51,6 +54,8 @@ private:
     float playbackFrameAccumulator_ = 0.0f;
     ControllerInput playbackBaselineInput_{};
     ControllerInput playbackLastInput_{};
+    ActorState playbackLastBallState_{};
+    bool playbackLastBallStateValid_ = false;
     bool playbackBaselineSet_ = false;
     ControllerInput lastLiveInput_{};
     bool hasLastLiveInput_ = false;
