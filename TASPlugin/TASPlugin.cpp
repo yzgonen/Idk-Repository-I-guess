@@ -30,6 +30,18 @@ constexpr const char* kBindLabels[] = {
 float Length(const Vector& v) { return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z); }
 Vector Scale(const Vector& v, float s) { return Vector{v.X * s, v.Y * s, v.Z * s}; }
 Vector Subtract(const Vector& a, const Vector& b) { return Vector{a.X-b.X, a.Y-b.Y, a.Z-b.Z}; }
+Vector Add(const Vector& a, const Vector& b) { return Vector{a.X+b.X, a.Y+b.Y, a.Z+b.Z}; }
+float Dot(const Vector& a, const Vector& b) { return a.X*b.X + a.Y*b.Y + a.Z*b.Z; }
+Vector Normalize(const Vector& v) {
+    const float length = Length(v);
+    return length > 0.001f ? Scale(v, 1.0f / length) : Vector{};
+}
+Vector Cross(const Vector& a, const Vector& b) {
+    return Vector{a.Y*b.Z - a.Z*b.Y, a.Z*b.X - a.X*b.Z, a.X*b.Y - a.Y*b.X};
+}
+float ProjectedAabbExtent(const Vector& axis, const Vector& extent) {
+    return std::fabs(axis.X) * extent.X + std::fabs(axis.Y) * extent.Y + std::fabs(axis.Z) * extent.Z;
+}
 
 bool InputsDiffer(const ControllerInput& a, const ControllerInput& b) {
     constexpr float deadzone = 0.05f;
@@ -338,23 +350,80 @@ void TASPlugin::ApplyBallOptions() {
         newSpeed *= ballMultiplier;
     }
     const float speedKph = newSpeed * 0.036f;
-    if (speedKph >= topBinThresholdKph && std::fabs(velocity.Y) > 1.0f) {
+    if (speedKph >= topBinThresholdKph) {
         const Vector loc = ball.GetLocation();
-        const float goalY = velocity.Y >= 0.0f ? 5120.0f : -5120.0f;
-        const float timeToGoal = (goalY - loc.Y) / velocity.Y;
-        // Only assist balls whose current trajectory is actually projected into
-        // the goal mouth. The aim then pulls that shot toward a high corner.
-        if (timeToGoal > 0.0f && timeToGoal < 4.0f) {
-            const float projectedX = loc.X + velocity.X * timeToGoal;
-            const float projectedZ = loc.Z + velocity.Z * timeToGoal;
-            if (std::fabs(projectedX) < 1100.0f && projectedZ > -100.0f && projectedZ < 850.0f) {
-                const float goalX = projectedX >= 0.0f ? 850.0f : -850.0f;
-                Vector direction{goalX - loc.X, goalY - loc.Y, 620.0f - loc.Z};
-                const float length = Length(direction);
-                if (length > 1.0f) {
-                    velocity = Scale(direction, newSpeed / length);
-                    ball.SetVelocity(velocity);
-                }
+        const float gravityScale = ball.GetReplicatedBallGravityScale();
+        const Vector gravity{0.0f, 0.0f, -650.0f * gravityScale};
+        ServerWrapper gameState = gameWrapper->GetCurrentGameState();
+        auto goals = gameState.GetGoals();
+        float nearestGoalTime = std::numeric_limits<float>::max();
+        Vector aimPoint{};
+        bool foundGoalPath = false;
+
+        for (int i = 0; i < goals.Count(); ++i) {
+            GoalWrapper goal = goals.Get(i);
+            if (goal.IsNull()) continue;
+
+            const Vector front = goal.GetWorldFrontCenter();
+            const Vector right = Normalize(goal.GetRight());
+            const Vector up = Normalize(goal.GetUp());
+            Vector normal = Normalize(Cross(right, up));
+            if (Length(right) < 0.9f || Length(up) < 0.9f || Length(normal) < 0.9f) continue;
+
+            const float planeA = 0.5f * Dot(gravity, normal);
+            const float planeB = Dot(velocity, normal);
+            const float planeC = Dot(Subtract(loc, front), normal);
+            float timeToGoal = std::numeric_limits<float>::max();
+            if (std::fabs(planeA) < 0.001f) {
+                if (std::fabs(planeB) < 1.0f) continue;
+                timeToGoal = -planeC / planeB;
+            } else {
+                const float discriminant = planeB * planeB - 4.0f * planeA * planeC;
+                if (discriminant < 0.0f) continue;
+                const float root = std::sqrt(discriminant);
+                const float first = (-planeB - root) / (2.0f * planeA);
+                const float second = (-planeB + root) / (2.0f * planeA);
+                if (first > 0.0f) timeToGoal = first;
+                if (second > 0.0f) timeToGoal = std::min(timeToGoal, second);
+            }
+            if (timeToGoal <= 0.0f || timeToGoal >= nearestGoalTime || timeToGoal > 4.0f) continue;
+
+            const Vector impact = Add(Add(loc, Scale(velocity, timeToGoal)), Scale(gravity, 0.5f * timeToGoal * timeToGoal));
+            const Vector offset = Subtract(impact, front);
+            const float lateral = Dot(offset, right);
+            const float vertical = Dot(offset, up);
+
+            // Goal local extents are half-sizes along its local right/up axes.
+            // Fall back to projected world bounds if a map does not populate them.
+            const Vector localExtent = goal.GetLocalExtent();
+            const Vector worldExtent = goal.GetWorldExtent();
+            float halfWidth = std::fabs(localExtent.Y);
+            float halfHeight = std::fabs(localExtent.Z);
+            if (halfWidth < 100.0f) halfWidth = ProjectedAabbExtent(right, worldExtent);
+            if (halfHeight < 100.0f) halfHeight = ProjectedAabbExtent(up, worldExtent);
+            if (halfWidth < 150.0f || halfHeight < 150.0f) continue;
+
+            constexpr float ballRadius = 93.0f;
+            const float openingHalfWidth = halfWidth - ballRadius;
+            const float openingHalfHeight = halfHeight - ballRadius;
+            if (std::fabs(lateral) > openingHalfWidth || std::fabs(vertical) > openingHalfHeight) continue;
+
+            const float side = lateral >= 0.0f ? 1.0f : -1.0f;
+            const float topMargin = std::min(ballRadius + 20.0f, openingHalfHeight * 0.45f);
+            const float sideMargin = std::min(ballRadius + 20.0f, openingHalfWidth * 0.45f);
+            aimPoint = Add(front, Add(Scale(right, side * (halfWidth - sideMargin)),
+                                      Scale(up, halfHeight - topMargin)));
+            nearestGoalTime = timeToGoal;
+            foundGoalPath = true;
+        }
+
+        if (foundGoalPath) {
+            const float flightTime = nearestGoalTime;
+            Vector direction = Subtract(Subtract(aimPoint, loc), Scale(gravity, 0.5f * flightTime * flightTime));
+            const float length = Length(direction);
+            if (length > 1.0f) {
+                velocity = Scale(direction, newSpeed / length);
+                ball.SetVelocity(velocity);
             }
         }
     }
