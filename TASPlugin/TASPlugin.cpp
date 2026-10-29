@@ -263,6 +263,12 @@ void TASPlugin::OnSetVehicleInput(void* params) {
         const ControllerInput liveInput = *input;
         if (mode_ == Mode::Recording) {
             frames_.push_back({liveInput});
+        } else if (mode_ == Mode::AtEndpoint) {
+            if (InputsDiffer(liveInput, playbackBaselineInput_)) {
+                mode_ = Mode::Recording;
+                frames_.push_back({liveInput});
+                status_ = "Control resumed at the endpoint. Recording your continuation.";
+            }
         } else if (mode_ == Mode::Playing) {
             if (!playbackBaselineSet_) {
                 playbackBaselineInput_ = hasLastLiveInput_ ? lastLiveInput_ : liveInput;
@@ -289,8 +295,8 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                         *input = playbackLastInput_;
                         playhead_ = lastFrame + 1;
                         if (playhead_ >= frames_.size()) {
-                            mode_ = Mode::Recording;
-                            status_ = "Reached the saved endpoint. Continue playing; Finish / close saves it.";
+                            mode_ = Mode::AtEndpoint;
+                            status_ = "Reached the saved endpoint. Control is yours; move to record a continuation.";
                         }
                     } else {
                         *input = playbackLastInput_;
@@ -554,7 +560,8 @@ void TASPlugin::RenderSettings() {
                 files = tasFiles_;
                 currentFile = selectedFile_;
                 frameCount = frames_.size();
-                modeLabel = mode_ == Mode::Recording ? "Recording" : (mode_ == Mode::Playing ? "Playing" : "Stopped");
+                modeLabel = mode_ == Mode::Recording ? "Recording" :
+                    (mode_ == Mode::Playing ? "Playing" : (mode_ == Mode::AtEndpoint ? "At endpoint" : "Stopped"));
             }
             const char* currentPreview = currentFile.empty() ? "Choose a TAS..." : currentFile.c_str();
             if (ImGui::BeginCombo("Select Current TAS", currentPreview)) {
