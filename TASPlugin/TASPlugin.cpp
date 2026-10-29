@@ -244,18 +244,14 @@ void TASPlugin::RecordFromStart() {
 }
 
 void TASPlugin::StartOrReplay() {
-    // Ordinary Play The Shot remains interactive: taking control branches it.
-    PlayCompleteShot();
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (mode_ == Mode::Playing) {
-            completePlayback_ = false;
-            status_ = "Playing The Shot from the saved start. Take control to branch the shot.";
-        }
-    }
+    StartPlayback(false);
 }
 
 void TASPlugin::PlayCompleteShot() {
+    StartPlayback(true);
+}
+
+void TASPlugin::StartPlayback(bool completeShot) {
     if (!IsOffline()) { SetStatus("TAS playback works only in Free Play or Custom Training."); return; }
     std::string savedName;
     {
@@ -266,6 +262,20 @@ void TASPlugin::PlayCompleteShot() {
     // Play always means replay the last explicitly saved take. Unsaved recording
     // changes are discarded here, leaving the previous saved shot intact.
     LoadFile(savedName);
+    float recordedGameSpeed = 1.0f;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (frames_.empty() || startFrameIndex_ >= frames_.size()) { status_ = "There are no saved frames after this start point. Record a take first."; return; }
+        if (!hasStart_) { status_ = "This TAS has no start point. Create a new TAS first."; return; }
+        recordedGameSpeed = std::clamp(shotGameSpeed_, 0.5f, 2.0f);
+    }
+    // Complete playback is the normal-speed capture mode: keep Rocket League's
+    // full simulation at 1x and display the take's recorded speed separately.
+    if (completeShot) {
+        cvarManager->getCvar("sv_soccar_gamespeed").setValue(1.0f);
+        cvarManager->getCvar("tasplugin_gamespeed").setValue(1.0f);
+        cvarManager->executeCommand("writeconfig", false);
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (frames_.empty() || startFrameIndex_ >= frames_.size()) { status_ = "There are no saved frames after this start point. Record a take first."; return; }
@@ -281,10 +291,15 @@ void TASPlugin::PlayCompleteShot() {
         playbackFrameAccumulator_ = 0.0f;
         playbackBaselineSet_ = false;
         playbackLastInput_ = frames_[playhead_].input;
-        completePlayback_ = true;
+        completePlayback_ = completeShot;
+        if (completeShot) {
+            gameSpeed_ = 1.0f;
+            playbackSpeed_ = recordedGameSpeed;
+        }
     }
     RestoreStart();
-    SetStatus("Playing the complete saved shot from its start point.");
+    SetStatus(completeShot ? "Playing the complete shot at Game speed 1.00x with its recorded replay rate." :
+        "Playing The Shot from the saved start. Take control to branch the shot.");
 }
 
 void TASPlugin::UpdateStartPoint() {
@@ -924,7 +939,7 @@ void TASPlugin::RenderSettings() {
             ImGui::Text("Current TAS: %s  |  %s  |  %zu recorded frames",
                 currentFile.empty() ? "None" : currentFile.c_str(), modeLabel.c_str(), frameCount);
             ImGui::TextWrapped("New TAS resets Free Play to Rocket League's normal car and ball spawn, then creates a named shot. Record from start records your driving. Save keeps the take; Play The Shot replays the saved take and lets you take control to branch it.");
-            ImGui::TextWrapped("Update Start Point moves the saved beginning to the current playback moment and keeps the earlier recorded frames. Play Complete Shot runs the saved take start-to-finish without branching, for capturing the whole shot.");
+            ImGui::TextWrapped("Update Start Point moves the saved beginning to the current playback moment and keeps the earlier recorded frames. Play Complete Shot runs the whole take without branching and sets Game speed to 1.00x plus Replay input speed to the recorded rate.");
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Game settings")) {
