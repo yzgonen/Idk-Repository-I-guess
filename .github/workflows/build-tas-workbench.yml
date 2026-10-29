@@ -23,16 +23,17 @@ jobs:
           $imguiDir = $header.Directory.FullName
           New-Item -ItemType Directory -Force "bakkesmodsdk\include\imgui" | Out-Null
           Copy-Item "$imguiDir\*" "bakkesmodsdk\include\imgui" -Recurse -Force
-          $sources = Get-ChildItem "imgui-unpacked" -Recurse -Include "imgui.cpp","imgui_draw.cpp","imgui_tables.cpp","imgui_widgets.cpp" -File
-          if (-not $sources) { throw "BakkesMod ImGui archive contains headers but no ImGui implementation sources; cannot link ImGui calls." }
-          "IMGUI_DIR=$imguiDir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          $sources.FullName | ForEach-Object { "IMGUI_SOURCE=$_ " -replace " $","" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          New-Item -ItemType Directory -Force "imgui-src" | Out-Null
+          Copy-Item "$imguiDir\*" "imgui-src" -Recurse -Force
+          foreach ($source in @("imgui.cpp","imgui_draw.cpp","imgui_tables.cpp","imgui_widgets.cpp")) {
+            if (-not (Test-Path "imgui-src\$source")) { throw "Missing ImGui source: $source" }
+          }
       - name: Build x64 Release
         shell: cmd
         run: |
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           set "SDK=%CD%\bakkesmodsdk"
-          cl /nologo /LD /EHsc /std:c++17 /W4 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I "%SDK%\include" /I "%IMGUI_DIR%" TASWorkbench\src\TASWorkbench.cpp %IMGUI_SOURCE_1% %IMGUI_SOURCE_2% %IMGUI_SOURCE_3% %IMGUI_SOURCE_4% "%SDK%\lib\pluginsdk.lib" /link /OUT:TASWorkbench.dll
+          cl /nologo /LD /EHsc /std:c++17 /W4 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I "%SDK%\include" /I "%CD%\imgui-src" TASWorkbench\src\TASWorkbench.cpp imgui-src\imgui.cpp imgui-src\imgui_draw.cpp imgui-src\imgui_tables.cpp imgui-src\imgui_widgets.cpp "%SDK%\lib\pluginsdk.lib" /link /OUT:TASWorkbench.dll
           if errorlevel 1 exit /b %errorlevel%
       - name: Package DLL
         shell: pwsh
