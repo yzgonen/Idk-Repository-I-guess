@@ -45,7 +45,8 @@ private:
     bool keyWasDown_[256]{};
     float playbackSpeed_ = 1.0f;
     float playbackFrameAccumulator_ = 0.0f;
-    uint64_t playerMoveTicks_ = 0;
+    uint64_t inputHookCalls_ = 0;
+    uint64_t offlineInputTicks_ = 0;
     float gameSpeed_ = 1.0f;
     bool topBinAim_ = false;
     float ballSpeedMultiplier_ = 1.0f;
@@ -54,8 +55,8 @@ private:
     bool IsOffline() const;
     bool CaptureState(ActorState& car, ActorState& ball) const;
     void RestoreStart();
-    void OnPlayerMove();
-    void ApplyPlaybackInput();
+    void OnSetVehicleInput(void* params);
+    void ApplyBallOptions();
     void RegisterCommands();
     void NewShot();
     void StartOrReplay();
