@@ -919,10 +919,20 @@ void TASPlugin::RenderSettings() {
             ImGui::SetNextItemWidth(360.0f);
             if (ImGui::SliderFloat("Replay input speed", &replaySpeed, 0.0f, 2.0f, "%.2fx")) {
                 replaySpeed = std::round(replaySpeed * 100.0f) / 100.0f;
-                std::lock_guard<std::mutex> lock(mutex_);
-                playbackSpeed_ = replaySpeed;
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    playbackSpeed_ = replaySpeed;
+                    if (replaySpeed > 0.0f) gameSpeed_ = replaySpeed;
+                }
+                if (replaySpeed > 0.0f) {
+                    gameWrapper->Execute([this, replaySpeed](GameWrapper*) {
+                        cvarManager->getCvar("sv_soccar_gamespeed").setValue(replaySpeed);
+                        cvarManager->getCvar("tasplugin_gamespeed").setValue(replaySpeed);
+                        cvarManager->executeCommand("writeconfig", false);
+                    });
+                }
             }
-            ImGui::TextDisabled("0.00x pauses TAS input playback. Rocket League's physics keep running.");
+            ImGui::TextDisabled("Above 0x, playback and game physics stay in sync to prevent the car and ball drifting off the recorded path. 0x holds the input while physics continue.");
             if (ImGui::Button(ballMultiplier > 1.5f ? "Ball speed: 2x" : "Ball speed: 1x")) cvarManager->executeCommand("tasplugin_toggle_ball_speed", false);
             ImGui::TextDisabled("Top-bin aim is automatic when the ball is heading into the goal and reaches the speed below.");
             ImGui::SetNextItemWidth(360.0f);
@@ -951,6 +961,10 @@ void TASPlugin::RenderSettings() {
             if (ImGui::SliderFloat("Game speed", &gameSpeed_, 0.5f, 2.0f, "%.2fx")) {
                 gameSpeed_ = std::round(gameSpeed_ * 100.0f) / 100.0f;
                 const float speed = gameSpeed_;
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    playbackSpeed_ = speed;
+                }
                 gameWrapper->Execute([this, speed](GameWrapper*) {
                     cvarManager->getCvar("sv_soccar_gamespeed").setValue(speed);
                     cvarManager->getCvar("tasplugin_gamespeed").setValue(speed);
