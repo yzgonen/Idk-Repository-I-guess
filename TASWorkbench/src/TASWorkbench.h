@@ -1,16 +1,19 @@
 #pragma once
 
 #include "bakkesmod/plugin/bakkesmodplugin.h"
+#include "bakkesmod/plugin/PluginSettingsWindow.h"
 #include <array>
 #include <mutex>
 #include <string>
 
 class TASWorkbench final : public BakkesMod::Plugin::BakkesModPlugin,
-                           public SettingsWindowBase {
+                           public BakkesMod::Plugin::PluginSettingsWindow {
 public:
     void onLoad() override;
     void onUnload() override;
     void RenderSettings() override;
+    std::string GetPluginName() override;
+    void SetImGuiContext(uintptr_t ctx) override;
 
 private:
     static constexpr int MutatorCount = 16;
