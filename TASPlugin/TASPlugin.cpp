@@ -52,6 +52,7 @@ void TASPlugin::onLoad() {
     gameSpeed_ = cvarManager->getCvar("tasplugin_gamespeed").getFloatValue();
     ballSpeedMultiplier_ = cvarManager->getCvar("tasplugin_ball_speed").getFloatValue();
     topBinAim_ = cvarManager->getCvar("tasplugin_topbin_aim").getBoolValue();
+    RegisterCommands();
     const char* defaultBinds[] = {"F7", "F8", "Mouse4", "Mouse5", "=", "B", "T", "Z"};
     for (int i = 0; i < 8; ++i) {
         const std::string cvar = "tasplugin_bind_" + std::to_string(i);
@@ -61,7 +62,6 @@ void TASPlugin::onLoad() {
         bindInput_[i][sizeof(bindInput_[i]) - 1] = '\0';
         cvarManager->executeCommand("bind " + key + " \"" + kBindCommands[i] + "\"", false);
     }
-    RegisterCommands();
     gameWrapper->HookEvent(kMoveEvent, [this](std::string) { ApplyPlaybackInput(); });
     gameWrapper->HookEventPost(kMoveEvent, [this](std::string) { OnPlayerMove(); });
     SetStatus("Ready — load a TAS or create a new shot in offline Free Play.");
@@ -123,16 +123,16 @@ void TASPlugin::RestoreStart() {
 }
 
 void TASPlugin::RegisterCommands() {
-    cvarManager->registerNotifier("tasplugin_new", [this](std::vector<std::string>) { NewShot(); }, "Start a new TAS recording from the current car and ball positions", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_play", [this](std::vector<std::string>) { StartOrReplay(); }, "Replay the loaded TAS or begin recording if it is empty", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_stop", [this](std::vector<std::string>) { Stop(); }, "Stop TAS recording or playback", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_update_start", [this](std::vector<std::string>) { UpdateStartPoint(); }, "Update the start position for the next replay without stopping recording", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_playback_speed", [this](std::vector<std::string>) { CyclePlaybackSpeed(); }, "Cycle replay speed through 0.5x, 1x, and 2x", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_toggle_ball_speed", [this](std::vector<std::string>) { ToggleBallSpeed(); }, "Toggle ball speed between 1x and 2x", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_toggle_topbin_aim", [this](std::vector<std::string>) { ToggleTopBinAim(); }, "Toggle offline top-bin aim assist", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_undo", [this](std::vector<std::string>) { Undo(); }, "Undo the last recorded input frame", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_save", [this](std::vector<std::string> args) { SaveFile(args.size() > 1 ? args[1] : selectedFile_); }, "Save the current TAS file", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
-    cvarManager->registerNotifier("tasplugin_load", [this](std::vector<std::string> args) { if (args.size() > 1) LoadFile(args[1]); }, "Load a TAS file by name", PERMISSION_FREEPLAY | PERMISSION_CUSTOM_TRAINING);
+    cvarManager->registerNotifier("tasplugin_new", [this](std::vector<std::string>) { NewShot(); }, "Start a new TAS recording from the current car and ball positions", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_play", [this](std::vector<std::string>) { StartOrReplay(); }, "Replay the loaded TAS or begin recording if it is empty", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_stop", [this](std::vector<std::string>) { Stop(); }, "Stop TAS recording or playback", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_update_start", [this](std::vector<std::string>) { UpdateStartPoint(); }, "Update the start position for the next replay without stopping recording", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_playback_speed", [this](std::vector<std::string>) { CyclePlaybackSpeed(); }, "Cycle replay speed through 0.5x, 1x, and 2x", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_toggle_ball_speed", [this](std::vector<std::string>) { ToggleBallSpeed(); }, "Toggle ball speed between 1x and 2x", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_toggle_topbin_aim", [this](std::vector<std::string>) { ToggleTopBinAim(); }, "Toggle offline top-bin aim assist", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_undo", [this](std::vector<std::string>) { Undo(); }, "Undo the last recorded input frame", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_save", [this](std::vector<std::string> args) { SaveFile(args.size() > 1 ? args[1] : selectedFile_); }, "Save the current TAS file", PERMISSION_ALL);
+    cvarManager->registerNotifier("tasplugin_load", [this](std::vector<std::string> args) { if (args.size() > 1) LoadFile(args[1]); }, "Load a TAS file by name", PERMISSION_ALL);
 }
 
 void TASPlugin::NewShot() {
@@ -148,6 +148,7 @@ void TASPlugin::NewShot() {
         hasPendingStart_ = false;
         playhead_ = 0;
         playbackFrameAccumulator_ = 0.0f;
+        previousBallVelocity_ = ball.velocity;
         mode_ = Mode::Recording;
     }
     SetStatus("Recording from the current position. Use Stop, then Save TAS.");
@@ -256,6 +257,7 @@ void TASPlugin::OnPlayerMove() {
     if (controller.IsNull()) return;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        ++playerMoveTicks_;
         if (mode_ == Mode::Recording) {
             frames_.push_back({controller.GetVehicleInput()});
         }
@@ -273,7 +275,7 @@ void TASPlugin::OnPlayerMove() {
     }
     const float oldSpeed = Length(previousBallVelocity_);
     float newSpeed = Length(velocity);
-    if (ballMultiplier > 1.01f && newSpeed > 1.0f && oldSpeed > 1.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
+    if (ballMultiplier > 1.01f && newSpeed > 1000.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
         velocity = Scale(velocity, ballMultiplier);
         ball.SetVelocity(velocity);
         newSpeed *= ballMultiplier;
@@ -419,7 +421,20 @@ void TASPlugin::SetBind(int index, const std::string& key) {
     if (index < 0 || index >= 8 || key.empty() || key.size() > 31 || !std::all_of(key.begin(), key.end(), [](unsigned char c) { return std::isalnum(c) || c == '='; })) { SetStatus("Could not read that key. Click Set bind, then press one key or mouse button."); return; }
     const std::string command = kBindCommands[index];
     const std::string cvar = "tasplugin_bind_" + std::to_string(index);
-    gameWrapper->Execute([this, cvar, key, command](GameWrapper*) {
+    const std::string oldKey = cvarManager->getCvar(cvar).getStringValue();
+    gameWrapper->Execute([this, cvar, key, oldKey, command, index](GameWrapper*) {
+        if (!oldKey.empty() && oldKey != key) {
+            bool oldKeyUsedElsewhere = false;
+            for (int other = 0; other < 8; ++other) {
+                if (other == index) continue;
+                const std::string otherCvar = "tasplugin_bind_" + std::to_string(other);
+                if (cvarManager->getCvar(otherCvar).getStringValue() == oldKey) {
+                    oldKeyUsedElsewhere = true;
+                    break;
+                }
+            }
+            if (!oldKeyUsedElsewhere) cvarManager->executeCommand("unbind " + oldKey, false);
+        }
         cvarManager->getCvar(cvar).setValue(key);
         cvarManager->executeCommand("bind " + key + " \"" + command + "\"", false);
         cvarManager->executeCommand("writeconfig", false);
@@ -493,7 +508,7 @@ void TASPlugin::RenderSettings() {
             if (ImGui::Button("Undo last frame")) cvarManager->executeCommand("tasplugin_undo", false);
             ImGui::TextDisabled("New TAS stores the current car and ball state. Stop, then save from Files.");
             std::lock_guard<std::mutex> lock(mutex_);
-            ImGui::Text("Frames: %d", static_cast<int>(frames_.size()));
+            ImGui::Text("Frames: %d  |  Game movement ticks: %llu", static_cast<int>(frames_.size()), static_cast<unsigned long long>(playerMoveTicks_));
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Files")) {
