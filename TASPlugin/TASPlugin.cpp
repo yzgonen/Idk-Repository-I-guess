@@ -155,7 +155,8 @@ void TASPlugin::NewShot() {
 
 void TASPlugin::StartOrReplay() {
     if (!IsOffline()) { SetStatus("TAS playback works only in Free Play or Custom Training."); return; }
-    bool recording = false;
+    ActorState capturedCar, capturedBall;
+    bool needCapture = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (hasPendingStart_) {
@@ -165,18 +166,29 @@ void TASPlugin::StartOrReplay() {
             hasPendingStart_ = false;
         }
         if (frames_.empty()) {
-            if (!hasStart_) {
-                ActorState car, ball;
-                if (!CaptureState(car, ball)) { status_ = "Could not read the current car and ball state."; return; }
-                startCar_ = car; startBall_ = ball; hasStart_ = true;
-            }
-            mode_ = Mode::Recording;
-            recording = true;
+            needCapture = !hasStart_;
         } else {
             if (!hasStart_) { status_ = "This TAS has no start point. Create a new TAS first."; return; }
             mode_ = Mode::Playing;
             playhead_ = 0;
             playbackFrameAccumulator_ = 0.0f;
+        }
+    }
+    if (needCapture) {
+        if (!CaptureState(capturedCar, capturedBall)) { SetStatus("Could not read the current car and ball state."); return; }
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!hasStart_ && frames_.empty()) {
+            startCar_ = capturedCar;
+            startBall_ = capturedBall;
+            hasStart_ = true;
+        }
+    }
+    bool recording = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (frames_.empty()) {
+            mode_ = Mode::Recording;
+            recording = true;
         }
     }
     if (recording) {
@@ -484,14 +496,14 @@ void TASPlugin::RenderSettings() {
     ImGui::Separator();
     if (ImGui::BeginTabBar("tasplugin_tabs")) {
         if (ImGui::BeginTabItem("Shot controls")) {
-            if (ImGui::Button("New TAS / start recording")) cvarManager->executeCommand("tasplugin_new", false);
+            if (ImGui::Button("New TAS / start recording")) gameWrapper->Execute([this](GameWrapper*) { NewShot(); });
             ImGui::SameLine();
-            if (ImGui::Button("Play / record")) cvarManager->executeCommand("tasplugin_play", false);
+            if (ImGui::Button("Play / record")) gameWrapper->Execute([this](GameWrapper*) { StartOrReplay(); });
             ImGui::SameLine();
-            if (ImGui::Button("Stop")) cvarManager->executeCommand("tasplugin_stop", false);
-            if (ImGui::Button("Update next start point")) cvarManager->executeCommand("tasplugin_update_start", false);
+            if (ImGui::Button("Stop")) gameWrapper->Execute([this](GameWrapper*) { Stop(); });
+            if (ImGui::Button("Update next start point")) gameWrapper->Execute([this](GameWrapper*) { UpdateStartPoint(); });
             ImGui::SameLine();
-            if (ImGui::Button("Undo last frame")) cvarManager->executeCommand("tasplugin_undo", false);
+            if (ImGui::Button("Undo last frame")) gameWrapper->Execute([this](GameWrapper*) { Undo(); });
             ImGui::TextDisabled("New TAS stores the current car and ball state. Stop, then save from Files.");
             std::lock_guard<std::mutex> lock(mutex_);
             ImGui::Text("Frames: %d  |  SetVehicleInput hooks: %llu  |  Offline ticks: %llu",
@@ -506,9 +518,15 @@ void TASPlugin::RenderSettings() {
             ImGui::SetNextItemWidth(220.0f);
             ImGui::InputText("File name", fileInput_, sizeof(fileInput_));
             ImGui::SameLine();
-            if (ImGui::Button("Save TAS")) SaveFile(fileInput_);
+            if (ImGui::Button("Save TAS")) {
+                const std::string name = fileInput_;
+                gameWrapper->Execute([this, name](GameWrapper*) { SaveFile(name); });
+            }
             ImGui::SameLine();
-            if (ImGui::Button("Load TAS")) LoadFile(fileInput_);
+            if (ImGui::Button("Load TAS")) {
+                const std::string name = fileInput_;
+                gameWrapper->Execute([this, name](GameWrapper*) { LoadFile(name); });
+            }
             ImGui::TextDisabled("Use .tas files created by this plugin. Loading replaces the current in-memory shot.");
             ImGui::EndTabItem();
         }
