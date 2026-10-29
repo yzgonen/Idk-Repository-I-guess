@@ -30,6 +30,7 @@ public:
 
 private:
     enum class Mode { Idle, Recording, Playing, AtEndpoint };
+    enum class PinchKind { None, Unknown, Wall, Ground, Ceiling };
     mutable std::mutex mutex_;
     Mode mode_ = Mode::Idle;
     std::vector<Frame> frames_;
@@ -57,6 +58,11 @@ private:
     float topBinThresholdKph_ = 110.0f;
     float ballSpeedMultiplier_ = 1.0f;
     Vector previousBallVelocity_{};
+    float previousBallTouchTime_ = 0.0f;
+    float previousBallWorldHitTime_ = 0.0f;
+    bool hasBallPhysicsHistory_ = false;
+    PinchKind lastPinchKind_ = PinchKind::None;
+    float lastPinchSpeedKph_ = 0.0f;
 
     bool IsOffline() const;
     bool CaptureState(ActorState& car, ActorState& ball) const;
