@@ -187,6 +187,12 @@ void TASWorkbench::SetStatus(const std::string& text) {
     status_ = text;
 }
 
+std::string TASWorkbench::GetPluginName() { return "TASWorkbench"; }
+
+void TASWorkbench::SetImGuiContext(uintptr_t ctx) {
+    ImGui::SetCurrentContext(reinterpret_cast<ImGuiContext*>(ctx));
+}
+
 void TASWorkbench::RenderSettings() {
     ImGui::TextUnformatted("TAS WORKBENCH");
     ImGui::TextDisabled("Shot controls, mutators, and binds in one place.");
