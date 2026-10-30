@@ -98,7 +98,11 @@ void TASPlugin::onLoad() {
         cvarManager->executeCommand("bind " + key + " \"" + kBindCommands[i] + "\"", false);
     }
     gameWrapper->HookEventWithCaller<CarWrapper>(kInputEvent,
-        [this](CarWrapper, void* params, std::string) { OnSetVehicleInput(params); });
+        [this](CarWrapper caller, void* params, std::string) {
+            auto localCar = gameWrapper->GetLocalCar();
+            if (caller.IsNull() || localCar.IsNull() || caller.memory_address != localCar.memory_address) return;
+            OnSetVehicleInput(params);
+        });
     gameWrapper->HookEvent(kGoalScoredEvent, [this](std::string) { OnGoalScored(); });
     RefreshFileList();
     SetStatus("Ready — create or select a TAS in offline Free Play.");
@@ -464,7 +468,7 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                 playbackBaselineInput_ = hasLastLiveInput_ ? lastLiveInput_ : liveInput;
                 playbackBaselineSet_ = true;
             }
-            if (InputsDiffer(liveInput, playbackBaselineInput_)) {
+            if (!completePlayback_ && InputsDiffer(liveInput, playbackBaselineInput_)) {
                 if (playhead_ < frames_.size()) frames_.resize(playhead_);
                 mode_ = Mode::Recording;
                 hasLastRecordedBallState_ = false;
@@ -562,7 +566,8 @@ void TASPlugin::ApplyBallOptions() {
     }
     const float oldSpeed = Length(previousBallVelocity_);
     float newSpeed = Length(velocity);
-    if (ballMultiplier > 1.01f && newSpeed > 1000.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
+    if (hasBallPhysicsHistory_ && touchTime > previousBallTouchTime_ + 0.001f &&
+        ballMultiplier > 1.01f && newSpeed > 1000.0f && std::fabs(newSpeed - oldSpeed) > 1000.0f) {
         velocity = Scale(velocity, ballMultiplier);
         ball.SetVelocity(velocity);
         newSpeed *= ballMultiplier;
@@ -829,6 +834,7 @@ void TASPlugin::LoadFile(const std::string& name) {
     // playback tick.
     ActorState lastBallKeyframe = ball;
     for (auto& frame : loaded) {
+        if (header != "TASPLUGIN,3") break;
         if (!frame.hasBallState) continue;
         frame.hasBallState = IsBallStateJump(lastBallKeyframe, frame.ball);
         lastBallKeyframe = frame.ball;
