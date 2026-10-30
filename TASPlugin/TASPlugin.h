@@ -29,7 +29,7 @@ public:
     // Alongside controller input, retain the live ball state for this tick.
     // Freeplay bindings from other plugins mutate the ball directly and do not
     // pass through SetVehicleInput, so input-only TAS recordings miss them.
-    struct Frame { ControllerInput input{}; ActorState ball{}; bool hasBallState = false; };
+    struct Frame { ControllerInput input{}; ActorState ball{}; bool hasBallState = false; ActorState car{}; bool hasCarState = false; float boost = 0.0f; bool jumped = false; bool doubleJumped = false; };
 
 private:
     enum class Mode { Idle, Recording, Playing, AtEndpoint };

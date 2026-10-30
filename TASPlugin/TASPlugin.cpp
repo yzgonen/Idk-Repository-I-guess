@@ -12,7 +12,7 @@
 #include <sstream>
 #include <Windows.h>
 
-BAKKESMOD_PLUGIN(TASPlugin, "TAS Plugin", "2.0.0", PLUGINTYPE_FREEPLAY)
+BAKKESMOD_PLUGIN(TASPlugin, "TAS Plugin", "2.1.0", PLUGINTYPE_FREEPLAY)
 
 namespace {
 constexpr const char* kInputEvent = "Function TAGame.Car_TA.SetVehicleInput";
@@ -52,8 +52,7 @@ bool InputsDiffer(const ControllerInput& a, const ControllerInput& b) {
         std::fabs(a.Pitch - b.Pitch) > deadzone || std::fabs(a.Yaw - b.Yaw) > deadzone ||
         std::fabs(a.Roll - b.Roll) > deadzone || std::fabs(a.DodgeForward - b.DodgeForward) > deadzone ||
         std::fabs(a.DodgeStrafe - b.DodgeStrafe) > deadzone || a.Handbrake != b.Handbrake ||
-        a.Jump != b.Jump || a.ActivateBoost != b.ActivateBoost || a.HoldingBoost != b.HoldingBoost ||
-        a.Jumped != b.Jumped;
+        a.Jump != b.Jump || a.ActivateBoost != b.ActivateBoost;
 }
 
 bool IsBallStateJump(const TASPlugin::ActorState& previous, const TASPlugin::ActorState& current) {
@@ -440,15 +439,29 @@ void TASPlugin::OnSetVehicleInput(void* params) {
         hasLiveBallState = true;
     }
 
+    CarWrapper liveCar = gameWrapper->GetLocalCar();
+    if (liveCar.IsNull() || !hasLiveBallState) return;
+    const ActorState liveCarState{liveCar.GetLocation(), liveCar.GetRotation(), liveCar.GetVelocity(), liveCar.GetAngularVelocity()};
+    auto boostComponent = liveCar.GetBoostComponent();
+    Frame synchronizedFrame{};
+    bool restoreCarState = false;
+    bool wasPlayback = false;
     ActorState ballStateToRestore{};
     bool restoreBallState = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         const ControllerInput liveInput = *input;
         auto appendRecordedFrame = [&]() {
-            const bool isBallKeyframe = hasLiveBallState &&
-                (!hasLastRecordedBallState_ || IsBallStateJump(lastRecordedBallState_, liveBallState));
-            frames_.push_back({liveInput, liveBallState, isBallKeyframe});
+            Frame frame;
+            frame.input = liveInput;
+            frame.ball = liveBallState;
+            frame.hasBallState = true;
+            frame.car = liveCarState;
+            frame.hasCarState = true;
+            frame.boost = boostComponent.IsNull() ? 0.0f : boostComponent.GetCurrentBoostAmount();
+            frame.jumped = liveCar.GetbJumped() != 0;
+            frame.doubleJumped = liveCar.GetbDoubleJumped() != 0;
+            frames_.push_back(frame);
             if (hasLiveBallState) {
                 lastRecordedBallState_ = liveBallState;
                 hasLastRecordedBallState_ = true;
@@ -465,7 +478,7 @@ void TASPlugin::OnSetVehicleInput(void* params) {
             }
         } else if (mode_ == Mode::Playing) {
             if (!playbackBaselineSet_) {
-                playbackBaselineInput_ = hasLastLiveInput_ ? lastLiveInput_ : liveInput;
+                playbackBaselineInput_ = liveInput;
                 playbackBaselineSet_ = true;
             }
             if (!completePlayback_ && InputsDiffer(liveInput, playbackBaselineInput_)) {
@@ -484,6 +497,7 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                     // The saved input stream was sampled at the game's speed
                     // used while recording. Convert its frame cadence to the
                     // selected replay rate under the current simulation speed.
+                    wasPlayback = true;
                     const float sourceGameSpeed = std::max(shotGameSpeed_, 0.01f);
                     playbackFrameAccumulator_ += playbackSpeed_ * gameSpeed_ / sourceGameSpeed;
                     const size_t steps = static_cast<size_t>(playbackFrameAccumulator_);
@@ -491,6 +505,8 @@ void TASPlugin::OnSetVehicleInput(void* params) {
                         playbackFrameAccumulator_ -= static_cast<float>(steps);
                         const size_t lastFrame = std::min(frames_.size() - 1, playhead_ + steps - 1);
                         playbackLastInput_ = frames_[lastFrame].input;
+                        synchronizedFrame = frames_[lastFrame];
+                        restoreCarState = synchronizedFrame.hasCarState;
                         for (size_t frameIndex = playhead_; frameIndex <= lastFrame; ++frameIndex) {
                             if (frames_[frameIndex].hasBallState) {
                                 ballStateToRestore = frames_[frameIndex].ball;
@@ -524,7 +540,18 @@ void TASPlugin::OnSetVehicleInput(void* params) {
         liveBall.SetVelocity(ballStateToRestore.velocity);
         liveBall.SetAngularVelocity(ballStateToRestore.angularVelocity, false);
     }
-    ApplyBallOptions();
+    if (restoreCarState) {
+        liveCar.SetLocation(synchronizedFrame.car.location);
+        liveCar.SetRotation(synchronizedFrame.car.rotation);
+        liveCar.SetVelocity(synchronizedFrame.car.velocity);
+        liveCar.SetAngularVelocity(synchronizedFrame.car.angularVelocity, false);
+        liveCar.SetbJumped(synchronizedFrame.jumped);
+        liveCar.SetbDoubleJumped(synchronizedFrame.doubleJumped);
+        if (!boostComponent.IsNull()) boostComponent.SetBoostAmount(synchronizedFrame.boost);
+    }
+    // Snapshots already contain the result of ball assist during recording.
+    // Reapplying it would steer and accelerate the saved trajectory again.
+    if (!wasPlayback) ApplyBallOptions();
 }
 
 void TASPlugin::ApplyBallOptions() {
@@ -750,7 +777,7 @@ bool TASPlugin::SaveFile(const std::string& name) {
     std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream out(path, std::ios::trunc);
     if (!out) { SetStatus("Could not create the TAS file."); return false; }
-    out << "TASPLUGIN,5\n" << std::setprecision(9);
+    out << "TASPLUGIN,6\n" << std::setprecision(9);
     WriteActor(out, car); out << '\n';
     WriteActor(out, ball); out << '\n';
     out << frames.size() << ',' << startFrameIndex << ',' << shotGameSpeed << '\n';
@@ -760,6 +787,11 @@ bool TASPlugin::SaveFile(const std::string& name) {
             << i.DodgeForward << ',' << i.DodgeStrafe << ',' << i.Handbrake << ',' << i.Jump << ','
             << i.ActivateBoost << ',' << i.HoldingBoost << ',' << i.Jumped << ',' << frame.hasBallState;
         if (frame.hasBallState) { out << ','; WriteActor(out, frame.ball); }
+        out << ',' << frame.hasCarState;
+        if (frame.hasCarState) {
+            out << ','; WriteActor(out, frame.car);
+            out << ',' << frame.boost << ',' << frame.jumped << ',' << frame.doubleJumped;
+        }
         out << '\n';
     }
     if (!out) { SetStatus("TAS file write failed."); return false; }
@@ -791,22 +823,22 @@ void TASPlugin::LoadFile(const std::string& name) {
     // Pre-v5 files did not store their recording speed, so assume the current
     // game-speed setting as the best available estimate.
     float shotGameSpeed = gameSpeed_;
-    if (!std::getline(in, header) || (header != "TASPLUGIN,2" && header != "TASPLUGIN,3" && header != "TASPLUGIN,4" && header != "TASPLUGIN,5") || !ReadActor(in, car) || !ReadActor(in, ball) || !(in >> count) || count > 2000000) {
+    if (!std::getline(in, header) || (header != "TASPLUGIN,2" && header != "TASPLUGIN,3" && header != "TASPLUGIN,4" && header != "TASPLUGIN,5" && header != "TASPLUGIN,6") || !ReadActor(in, car) || !ReadActor(in, ball) || !(in >> count) || count > 2000000) {
         SetStatus("Could not load this TAS file or its format is invalid."); return;
     }
-    if (header == "TASPLUGIN,4" || header == "TASPLUGIN,5") {
+    if (header == "TASPLUGIN,4" || header == "TASPLUGIN,5" || header == "TASPLUGIN,6") {
         char comma = 0;
         if (!(in >> comma >> startFrameIndex) || comma != ',' || startFrameIndex > count) {
             SetStatus("TAS file has an invalid saved start point."); return;
         }
     }
-    if (header == "TASPLUGIN,5") {
+    if (header == "TASPLUGIN,5" || header == "TASPLUGIN,6") {
         char comma = 0;
         if (!(in >> comma >> shotGameSpeed) || comma != ',' || !std::isfinite(shotGameSpeed) || shotGameSpeed < 0.5f || shotGameSpeed > 2.0f) {
             SetStatus("TAS file has an invalid recorded game speed."); return;
         }
     }
-    const bool hasFrameBallStates = header == "TASPLUGIN,3" || header == "TASPLUGIN,4" || header == "TASPLUGIN,5";
+    const bool hasFrameBallStates = header == "TASPLUGIN,3" || header == "TASPLUGIN,4" || header == "TASPLUGIN,5" || header == "TASPLUGIN,6";
     in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
     std::vector<Frame> loaded;
     loaded.reserve(count);
@@ -824,6 +856,22 @@ void TASPlugin::LoadFile(const std::string& name) {
             f.hasBallState = hasFrameBall != 0;
             if (f.hasBallState) {
                 if (!(in >> comma) || !ReadActor(in, f.ball)) { SetStatus("TAS file contains an invalid ball state."); return; }
+            }
+        }
+        if (header == "TASPLUGIN,6") {
+            unsigned int hasCar = 0, jumpedState = 0, doubleJumpedState = 0;
+            if (!(in >> comma >> hasCar) || comma != ',' || hasCar > 1) {
+                SetStatus("TAS file contains an invalid car snapshot flag."); return;
+            }
+            f.hasCarState = hasCar != 0;
+            if (f.hasCarState) {
+                if (!(in >> comma) || comma != ',' || !ReadActor(in, f.car) ||
+                    !(in >> comma >> f.boost >> comma >> jumpedState >> comma >> doubleJumpedState) ||
+                    !std::isfinite(f.boost)) {
+                    SetStatus("TAS file contains an invalid car snapshot."); return;
+                }
+                f.jumped = jumpedState != 0;
+                f.doubleJumped = doubleJumpedState != 0;
             }
         }
         loaded.push_back(f);
