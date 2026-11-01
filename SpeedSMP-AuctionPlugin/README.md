@@ -25,6 +25,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 - `/bidding start` starts at A-Tiers. `/auction start` is an equivalent admin shortcut.
 - Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 30-second bidding window. Offline players appear as protected Citizens player NPCs using their account skin.
 - Only S-tier captains can place bids. While bidding is open, a numeric chat message such as `30` becomes a team-colored `I bid 30!` announcement. A-D players' chat is suppressed during that window. Bids must be above the current bid and within that team's remaining 250 auction money. Outbid bids are not charged.
+- Each accepted higher bid adds 10 seconds to that player's bidding timer.
 - `/sell` closes the current player's auction early. Otherwise, the 30-second timer closes it automatically. The winner pays the winning amount, the player is assigned the team's color, and they are sent to that team's `/posteam` location.
 - A player with no bids is assigned to an eligible team with the most remaining budget. This keeps each team to one player per tier where possible.
 - At the end of D-Tiers, the auction closes. Unused auction money has no season value.

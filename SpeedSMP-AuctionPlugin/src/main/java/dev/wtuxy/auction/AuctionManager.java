@@ -29,6 +29,7 @@ public final class AuctionManager {
     private BukkitTask timerTask;
     private BossBar bossBar;
     private long biddingEndsAt;
+    private long biddingDurationMillis;
     private int countdownGeneration;
 
     public AuctionManager(AuctionPlugin plugin) {
@@ -177,13 +178,14 @@ public final class AuctionManager {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (generation != countdownGeneration || !running || currentPlayer == null || biddingOpen) return;
             biddingOpen = true;
-            biddingEndsAt = System.currentTimeMillis() + seconds * 1000L;
+            biddingDurationMillis = seconds * 1000L;
+            biddingEndsAt = System.currentTimeMillis() + biddingDurationMillis;
             bossBar = Bukkit.createBossBar("Bidding: " + currentPlayer, BarColor.PURPLE, BarStyle.SOLID);
             bossBar.setProgress(1.0);
             for (Player player : Bukkit.getOnlinePlayers()) bossBar.addPlayer(player);
             timerTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
                 long millis = Math.max(0L, biddingEndsAt - System.currentTimeMillis());
-                double progress = millis / (seconds * 1000.0);
+                double progress = millis / (double) biddingDurationMillis;
                 if (bossBar != null) {
                     bossBar.setProgress(Math.max(0, Math.min(1, progress)));
                     bossBar.setTitle("Bidding: " + currentPlayer + " — " + ((millis + 999) / 1000) + "s");
@@ -200,6 +202,10 @@ public final class AuctionManager {
         }
         if (plugin.store().tierOf(bidder.getName()) != Tier.S) {
             bidder.sendMessage(Component.text("Only S-tier players can bid."));
+            return;
+        }
+        if (System.currentTimeMillis() >= biddingEndsAt) {
+            bidder.sendMessage(Component.text("Bidding time has expired."));
             return;
         }
         TeamColor color = plugin.store().colorOf(bidder.getName());
@@ -223,6 +229,9 @@ public final class AuctionManager {
         highestCaptain = bidder.getName();
         highestColor = color;
         highestBid = amount;
+        long extensionMillis = Math.max(0, plugin.getConfig().getInt("bid-extension-seconds", 10)) * 1000L;
+        biddingEndsAt += extensionMillis;
+        biddingDurationMillis += extensionMillis;
         Bukkit.broadcast(Component.text("I bid " + amount + "!").color(plugin.adventureColor(color)));
     }
 
