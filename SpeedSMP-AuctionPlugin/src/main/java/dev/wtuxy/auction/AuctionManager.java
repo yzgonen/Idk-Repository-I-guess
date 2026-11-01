@@ -276,9 +276,7 @@ public final class AuctionManager {
         Player player = Bukkit.getPlayerExact(currentPlayer);
         if (player != null) {
             plugin.npcs().remove(currentPlayer);
-            player.teleportAsync(position).thenAccept(success -> {
-                if (success) Bukkit.getScheduler().runTask(plugin, () -> plugin.setMovementAnchor(player, position));
-            });
+            player.teleportAsync(position);
         } else if (!plugin.npcs().spawn(currentPlayer, position)) {
             Bukkit.broadcast(Component.text("Could not create the offline player stand-in for " + currentPlayer + ". Check Citizens and the player's cached skin."));
         }
@@ -397,9 +395,7 @@ public final class AuctionManager {
             Location target = teamArrival(winner, sold);
             if (player != null) {
                 plugin.npcs().remove(sold);
-                if (target != null) player.teleportAsync(target).thenAccept(success -> {
-                    if (success) Bukkit.getScheduler().runTask(plugin, () -> plugin.setMovementAnchor(player, target));
-                });
+                if (target != null) player.teleportAsync(target);
             } else if (target != null) {
                 plugin.npcs().move(sold, target);
             }
@@ -444,9 +440,7 @@ public final class AuctionManager {
             Player player = Bukkit.getPlayerExact(name);
             if (player != null) {
                 plugin.refreshName(player);
-                if (target != null) player.teleportAsync(target).thenAccept(success -> {
-                    if (success) Bukkit.getScheduler().runTask(plugin, () -> plugin.setMovementAnchor(player, target));
-                });
+                if (target != null) player.teleportAsync(target);
             } else if (target != null) plugin.npcs().move(name, target);
             Bukkit.broadcast(Component.text(name + " was assigned to the " + team.name() + " Team as a leftover.")
                     .color(plugin.adventureColor(team)));

@@ -71,7 +71,6 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     private AuctionManager auction;
     private OfflineNpcService npcs;
     private BarrierPassService barrierPass;
-    private final Map<UUID, Location> movementAnchors = new HashMap<>();
     private final Map<UUID, GameMode> modeBeforePvpOff = new HashMap<>();
     private final Map<UUID, List<PotionEffect>> effectsBeforePvpOff = new HashMap<>();
     private final Map<UUID, Integer> lastBarrierScan = new HashMap<>();
@@ -600,7 +599,6 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (!hadInvisibilityBeforePvpOff) player.removePotionEffect(PotionEffectType.INVISIBILITY);
         player.addPotionEffect(new PotionEffect(PotionEffectType.SATURATION, Integer.MAX_VALUE, 255, false, false, false));
         player.setInvulnerable(false);
-        if (tier != Tier.S && !player.isOp()) movementAnchors.put(id, player.getLocation().clone());
         refreshName(player);
         barrierPass.updateClientView(player);
     }
@@ -695,7 +693,9 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onRespawn(PlayerRespawnEvent event) {
         Location configured = joinLocation(event.getPlayer());
-        if (configured != null) event.setRespawnLocation(configured);
+        if (configured != null) {
+            event.setRespawnLocation(configured);
+        }
     }
 
     @EventHandler
@@ -707,22 +707,11 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         auction.onJoin(player);
         npcs.remove(player.getName());
         Location join = joinLocation(player);
-        if (join != null) Bukkit.getScheduler().runTaskLater(this, () -> player.teleportAsync(join).thenAccept(success -> {
-            if (success && store.isPvpOff() && store.tierOf(player.getName()) != Tier.S && !player.isOp()
-                    && auction.currentPosition(player.getName()) == null) {
-                Bukkit.getScheduler().runTask(this, () -> movementAnchors.put(player.getUniqueId(), join.clone()));
-            }
-            if (success && store.isPvpOff() && store.tierOf(player.getName()) != Tier.S && !player.isOp()
-                    && auction.currentPosition(player.getName()) != null) {
-                Bukkit.getScheduler().runTask(this, () -> setMovementAnchor(player, join));
-            }
-            if (success && store.isPvpOff()) Bukkit.getScheduler().runTask(this, () -> barrierPass.updateClientView(player));
-        }), 2L);
+        if (join != null) Bukkit.getScheduler().runTaskLater(this, () -> player.teleportAsync(join), 2L);
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        movementAnchors.remove(event.getPlayer().getUniqueId());
         barrierPass.forgetClient(event.getPlayer());
     }
 
@@ -845,15 +834,6 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
             }
         }
         if (store.isPvpOff()) barrierPass.updateClientView(player);
-        if (store.isPvpOff() && !player.isOp() && store.tierOf(player.getName()) != Tier.S) {
-            Location anchor = movementAnchors.get(player.getUniqueId());
-            if (anchor != null && anchor.getWorld().equals(event.getTo().getWorld()) && anchor.distanceSquared(event.getTo()) > 9.0) {
-                Location safe = event.getFrom().clone();
-                safe.setYaw(event.getTo().getYaw());
-                safe.setPitch(event.getTo().getPitch());
-                event.setTo(safe);
-            }
-        }
     }
 
     private boolean isAuctionPodium(Player player) {
@@ -863,11 +843,6 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     private List<String> complete(CommandSender sender, String input) {
         String lower = input.toLowerCase(Locale.ROOT);
         return store.allNames().stream().filter(n -> n.toLowerCase(Locale.ROOT).startsWith(lower)).toList();
-    }
-
-    void setMovementAnchor(Player player, Location location) {
-        if (player == null || location == null || player.isOp() || store.tierOf(player.getName()) == Tier.S) return;
-        movementAnchors.put(player.getUniqueId(), location.clone());
     }
 
     @Override
