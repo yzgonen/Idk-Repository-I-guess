@@ -364,6 +364,7 @@ public final class AuctionManager {
             } else {
                 String unbidPlayer = currentPlayer;
                 plugin.store().setSoldTeam(unbidPlayer, leftoverTeam);
+                plugin.store().recordPurchase(unbidPlayer, tier, leftoverTeam, 0);
                 Player player = Bukkit.getPlayerExact(unbidPlayer);
                 if (player != null) plugin.refreshName(player);
                 Bukkit.broadcast(Component.text(unbidPlayer + " was assigned to the " + leftoverTeam.name() + " Team as a leftover.")
