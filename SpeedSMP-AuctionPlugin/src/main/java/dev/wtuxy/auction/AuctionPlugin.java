@@ -88,7 +88,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         npcs = new OfflineNpcService(this);
         auction = new AuctionManager(this);
         getServer().getPluginManager().registerEvents(this, this);
-        for (String command : List.of("tiers", "tier", "pos", "posteam", "axs", "assign", "assignp", "credits", "auction", "bidding", "sell", "pvp")) {
+        for (String command : List.of("tiers", "tier", "pos", "posteam", "axs", "assign", "assignp", "credits", "addnpc", "auction", "bidding", "sell", "pvp")) {
             if (getCommand(command) != null) {
                 getCommand(command).setExecutor(this);
                 getCommand(command).setTabCompleter(this);
@@ -137,6 +137,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (cmd.equals("assign")) return assignCommand(sender, args);
         if (cmd.equals("assignp")) return assignPlayerCommand(sender, args);
         if (cmd.equals("credits")) return creditsCommand(sender, args);
+        if (cmd.equals("addnpc")) return addNpcCommand(sender, args);
         if (cmd.equals("auction")) return auctionCommand(sender, args);
         if (cmd.equals("bidding")) return biddingCommand(sender, args);
         if (cmd.equals("sell")) return sellCommand(sender);
@@ -409,6 +410,30 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         int available = auction.availableCredits(color);
         sender.sendMessage(color.chatColor() + playerName + "'s " + color.name() + " Team has " + available
                 + " auction credits available" + (available == total ? "." : " (" + (total - available) + " currently reserved in the leading bid; total remaining: " + total + ")."));
+    }
+
+    private boolean addNpcCommand(CommandSender sender, String[] args) {
+        if (!admin(sender)) return true;
+        if (!(sender instanceof Player player) || args.length != 1) {
+            sender.sendMessage(ChatColor.RED + "Usage: /addnpc <registered-player>");
+            return true;
+        }
+        String name = args[0];
+        if (!validPlayerName(name) || store.tierOf(name) == null) {
+            sender.sendMessage(ChatColor.RED + "That player is not registered in the tier list.");
+            return true;
+        }
+        if (Bukkit.getPlayerExact(name) != null) {
+            sender.sendMessage(ChatColor.YELLOW + name + " is online already; no stand-in NPC was added.");
+            return true;
+        }
+        if (!npcs.spawn(name, player.getLocation())) {
+            sender.sendMessage(ChatColor.RED + "Could not add the NPC. Make sure Citizens is installed and enabled.");
+            return true;
+        }
+        sender.sendMessage(store.colorOf(name) == null ? ChatColor.GREEN + "Added " + name + "'s NPC at your location."
+                : store.colorOf(name).chatColor() + "Added " + name + "'s NPC at your location.");
+        return true;
     }
 
     private boolean auctionCommand(CommandSender sender, String[] args) {
@@ -876,6 +901,10 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
             if (args.length == 2 && (args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
                 return store.allNames().stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
             }
+        }
+        if (cmd.equals("addnpc") && args.length == 1) {
+            return store.allNames().stream().filter(name -> store.tierOf(name) != null)
+                    .filter(name -> name.toLowerCase().startsWith(args[0].toLowerCase())).toList();
         }
         if (cmd.equals("pos")) {
             if (args.length == 1) return List.of("add", "delete").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();

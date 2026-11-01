@@ -49,6 +49,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 | `/credits <player>` | Admin | Shows that player's team's available credits. |
 | `/credits add <player> <amount>` | Admin | Adds credits to that player's shared team balance. |
 | `/credits remove <player> <amount>` | Admin | Removes available credits from that player's shared team balance. |
+| `/addnpc <registered-player>` | Admin | Spawns or moves an offline registered player's Citizens NPC to your current location. |
 | `/pos add <1-8>` | Admin | Saves a lineup location at your current position. |
 | `/pos delete <1-8>` | Admin | Deletes a saved lineup location. |
 | `/posteam <color>` | Admin | Saves the team's sale destination at your current position. |

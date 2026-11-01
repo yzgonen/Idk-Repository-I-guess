@@ -25,6 +25,9 @@ commands:
   credits:
     description: Check or manage a team's auction credits
     usage: /credits [player|add <player> <amount>|remove <player> <amount>]
+  addnpc:
+    description: Add an offline registered player's Citizens NPC at your location
+    usage: /addnpc <registered-player>
   axs:
     description: Set regular or S-tier join spawn
     usage: /axs set <all|S>
