@@ -57,4 +57,4 @@ Citizens creates a protected player NPC with the roster player's skin. When the 
 
 Import this Maven project into IntelliJ IDEA or run `mvn package` with JDK 21. The plugin JAR is written to `target/auction-plugin-1.0.0.jar`.
 
-The repository's GitHub Actions workflow builds the JAR on pushes and manual runs. Download the `speedsmp-auction-plugin` artifact from the completed **Build Auction Plugin** run, then unzip it to get the JAR.
+The repository's GitHub Actions workflow builds the JAR on pushes and manual runs. The latest compiled JAR is also included in this folder as `auction-plugin-1.0.0.jar`. To rebuild it, download the `speedsmp-auction-plugin` artifact from a completed **Build Auction Plugin** run.
