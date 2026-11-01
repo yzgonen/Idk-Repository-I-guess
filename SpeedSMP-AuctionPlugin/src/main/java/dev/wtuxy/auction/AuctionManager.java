@@ -83,6 +83,12 @@ public final class AuctionManager {
                 return;
             }
         }
+        for (Tier auctionTier : AUCTION_TIERS) {
+            for (String name : plugin.store().playersIn(auctionTier)) {
+                plugin.store().clearSoldTeam(name);
+                plugin.store().clearPurchase(name);
+            }
+        }
         running = true;
         pendingLeftovers.clear();
         skipPreviouslySoldPlayers = false;
