@@ -63,7 +63,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 | `/auction npcs clear` | Admin | Removes saved auction stand-in NPCs while keeping the roster. |
 | `/pvp off` / `/pvp on` | Admin | Applies/removes the server-wide protected mode. |
 
-`/pvp off` affects current players and future joiners. It disables player-versus-player damage, applies invisibility and Saturation 255, prevents block breaking/placing and block/entity/container interactions, and uses Adventure mode for non-S players. S-tier players and OPs keep their saved game mode (they are not put in spectator). Arena barrier blocks are temporarily removed server-side so S-tier players and OPs can pass; regular players receive a client-side barrier view. `/pvp on` restores the barriers, saved game modes, and prior potion effects.
+`/pvp off` affects current players and future joiners. It disables player-versus-player damage, applies Saturation 255, prevents block breaking/placing and block/entity/container interactions, and uses Adventure mode for non-S players. It does not make players invisible. S-tier players and OPs keep their saved game mode (they are not put in spectator). Arena barrier blocks are temporarily removed server-side so S-tier players and OPs can pass; regular players receive a client-side barrier view. `/pvp on` restores the barriers, saved game modes, and prior potion effects.
 
 ## Offline players
 

@@ -564,10 +564,13 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         }
         modeBeforePvpOff.put(id, original);
         effectsBeforePvpOff.putIfAbsent(id, loadEffectSnapshot(id));
+        boolean hadInvisibilityBeforePvpOff = effectsBeforePvpOff.get(id).stream()
+                .anyMatch(effect -> effect.getType().equals(PotionEffectType.INVISIBILITY));
         Tier tier = store.tierOf(player.getName());
         if (tier == Tier.S || player.isOp()) player.setGameMode(original);
         else player.setGameMode(GameMode.ADVENTURE);
-        player.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0, false, false, false));
+        // Remove invisibility left behind by earlier plugin versions, while preserving a player's original effect.
+        if (!hadInvisibilityBeforePvpOff) player.removePotionEffect(PotionEffectType.INVISIBILITY);
         player.addPotionEffect(new PotionEffect(PotionEffectType.SATURATION, Integer.MAX_VALUE, 255, false, false, false));
         player.setInvulnerable(false);
         if (tier != Tier.S && !player.isOp()) movementAnchors.put(id, player.getLocation().clone());
@@ -583,7 +586,6 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
             try { mode = GameMode.valueOf(saved); } catch (IllegalArgumentException e) { mode = GameMode.SURVIVAL; }
         }
         player.setGameMode(mode);
-        player.removePotionEffect(PotionEffectType.INVISIBILITY);
         player.removePotionEffect(PotionEffectType.SATURATION);
         List<PotionEffect> previousEffects = effectsBeforePvpOff.remove(id);
         if (previousEffects == null) previousEffects = loadEffectSnapshot(id);
