@@ -16,11 +16,15 @@ import java.util.Locale;
 public final class AuctionStore {
     private final File file;
     private final YamlConfiguration data;
+    private final File purchasesFile;
+    private final YamlConfiguration purchases;
 
     public AuctionStore(AuctionPlugin plugin) {
         this.file = new File(plugin.getDataFolder(), "data.yml");
         if (!plugin.getDataFolder().exists()) plugin.getDataFolder().mkdirs();
         this.data = YamlConfiguration.loadConfiguration(file);
+        this.purchasesFile = new File(plugin.getDataFolder(), "purchases.yml");
+        this.purchases = YamlConfiguration.loadConfiguration(purchasesFile);
     }
 
     private String playerKey(String name) { return name.toLowerCase(Locale.ROOT); }
@@ -138,6 +142,45 @@ public final class AuctionStore {
         assignTeam(player, color);
     }
 
+    public void clearSoldTeam(String player) {
+        data.set("sold." + playerKey(player), null);
+        data.set("players." + playerKey(player) + ".team-color", null);
+        save();
+    }
+
+    public void recordPurchase(String player, Tier tier, TeamColor color, int amount) {
+        String path = "purchases." + playerKey(player);
+        purchases.set(path + ".name", player);
+        purchases.set(path + ".tier", tier.name());
+        purchases.set(path + ".team", color.name());
+        purchases.set(path + ".amount", amount);
+        savePurchases();
+    }
+
+    public int purchaseAmount(String player, Tier tier) {
+        String path = "purchases." + playerKey(player);
+        if (!tier.name().equalsIgnoreCase(purchases.getString(path + ".tier"))) return 0;
+        return Math.max(0, purchases.getInt(path + ".amount", 0));
+    }
+
+    public TeamColor purchaseTeam(String player, Tier tier) {
+        String path = "purchases." + playerKey(player);
+        if (!tier.name().equalsIgnoreCase(purchases.getString(path + ".tier"))) return null;
+        String team = purchases.getString(path + ".team");
+        if (team == null) return null;
+        try { return TeamColor.parse(team); } catch (IllegalArgumentException ignored) { return null; }
+    }
+
+    public boolean hasPurchase(String player, Tier tier) {
+        String path = "purchases." + playerKey(player);
+        return tier.name().equalsIgnoreCase(purchases.getString(path + ".tier"));
+    }
+
+    public void clearPurchase(String player) {
+        purchases.set("purchases." + playerKey(player), null);
+        savePurchases();
+    }
+
     public TeamColor soldTeam(String player) {
         String value = data.getString("sold." + playerKey(player));
         if (value == null) return null;
@@ -176,5 +219,9 @@ public final class AuctionStore {
 
     private void save() {
         try { data.save(file); } catch (IOException e) { throw new IllegalStateException("Could not save data.yml", e); }
+    }
+
+    private void savePurchases() {
+        try { purchases.save(purchasesFile); } catch (IOException e) { throw new IllegalStateException("Could not save purchases.yml", e); }
     }
 }

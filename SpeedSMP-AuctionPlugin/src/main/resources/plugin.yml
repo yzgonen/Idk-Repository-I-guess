@@ -26,8 +26,8 @@ commands:
     description: Start or stop the auction
     usage: /auction <start|stop>
   bidding:
-    description: Start the current player's live bidding
-    usage: /bidding start
+    description: Control or restart auction bidding
+    usage: /bidding <start|pause|stop|restart <A|B|C|D>>
   sell:
     description: Sell the current player to the highest bidder
     usage: /sell

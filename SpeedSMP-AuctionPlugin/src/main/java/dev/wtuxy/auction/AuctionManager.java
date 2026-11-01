@@ -22,6 +22,7 @@ public final class AuctionManager {
     private int index;
     private boolean running;
     private boolean biddingOpen;
+    private boolean paused;
     private String currentPlayer;
     private String highestCaptain;
     private TeamColor highestColor;
@@ -30,7 +31,9 @@ public final class AuctionManager {
     private BossBar bossBar;
     private long biddingEndsAt;
     private long biddingDurationMillis;
+    private long pausedRemainingMillis;
     private int countdownGeneration;
+    private boolean skipPreviouslySoldPlayers;
 
     public AuctionManager(AuctionPlugin plugin) {
         this.plugin = plugin;
@@ -45,6 +48,7 @@ public final class AuctionManager {
 
     public boolean isRunning() { return running; }
     public boolean isBiddingOpen() { return biddingOpen; }
+    public boolean isPaused() { return paused; }
     public String currentPlayer() { return currentPlayer; }
 
     public Location currentPosition(String playerName) {
@@ -68,6 +72,7 @@ public final class AuctionManager {
             }
         }
         running = true;
+        skipPreviouslySoldPlayers = false;
         plugin.store().setAuctionRunning(true);
         tier = Tier.A;
         plugin.store().setAuctionTier(tier);
@@ -82,6 +87,7 @@ public final class AuctionManager {
         cancelTimer();
         running = false;
         biddingOpen = false;
+        paused = false;
         currentPlayer = null;
         lineup.clear();
         plugin.store().setAuctionRunning(false);
@@ -95,6 +101,10 @@ public final class AuctionManager {
             start();
             return;
         }
+        if (paused) {
+            resumeBidding();
+            return;
+        }
         if (biddingOpen) {
             Bukkit.broadcast(Component.text("Bidding is already open."));
             return;
@@ -106,9 +116,96 @@ public final class AuctionManager {
         beginBidding();
     }
 
+    public void pauseBidding() {
+        if (!running || !biddingOpen || paused) {
+            Bukkit.broadcast(Component.text("There is no active bidding timer to pause."));
+            return;
+        }
+        pausedRemainingMillis = Math.max(0L, biddingEndsAt - System.currentTimeMillis());
+        paused = true;
+        if (timerTask != null) {
+            timerTask.cancel();
+            timerTask = null;
+        }
+        if (bossBar != null) bossBar.setTitle("Bidding paused: " + currentPlayer + " — " + ((pausedRemainingMillis + 999) / 1000) + "s");
+        Bukkit.broadcast(Component.text("Bidding is paused. Use /bidding start to resume."));
+    }
+
+    private void resumeBidding() {
+        if (!paused || !running || !biddingOpen) return;
+        paused = false;
+        biddingEndsAt = System.currentTimeMillis() + pausedRemainingMillis;
+        startTimerTask();
+        Bukkit.broadcast(Component.text("Bidding has resumed."));
+    }
+
+    public void restartTier(String requested) {
+        Tier restartTier;
+        try {
+            restartTier = Tier.parse(requested);
+        } catch (IllegalArgumentException e) {
+            Bukkit.broadcast(Component.text("Choose a tier: A, B, C, or D."));
+            return;
+        }
+        if (restartTier == Tier.S) {
+            Bukkit.broadcast(Component.text("Only auction tiers A, B, C, and D can be restarted."));
+            return;
+        }
+        for (TeamColor color : TeamColor.values()) {
+            if (plugin.store().captain(color) == null || plugin.store().teamPosition(color) == null) {
+                Bukkit.broadcast(Component.text("Set up all eight team captains and /posteam destinations before restarting a tier."));
+                return;
+            }
+        }
+
+        cancelTimer();
+        biddingOpen = false;
+        paused = false;
+        if (bossBar != null) {
+            bossBar.removeAll();
+            bossBar = null;
+        }
+
+        int refunded = 0;
+        int untracked = 0;
+        for (String name : plugin.store().playersIn(restartTier)) {
+            if (plugin.store().hasPurchase(name, restartTier)) {
+                int amount = plugin.store().purchaseAmount(name, restartTier);
+                TeamColor team = plugin.store().purchaseTeam(name, restartTier);
+                if (team != null && amount > 0) {
+                    int balance = plugin.store().budget(team, plugin.getConfig().getInt("starting-budget", 250));
+                    plugin.store().setBudget(team, balance + amount);
+                    refunded += amount;
+                }
+            } else if (plugin.store().soldTeam(name) != null) {
+                untracked++;
+            }
+            plugin.store().clearSoldTeam(name);
+            plugin.store().clearPurchase(name);
+        }
+
+        tier = restartTier;
+        plugin.store().setAuctionTier(tier);
+        index = 0;
+        currentPlayer = null;
+        highestCaptain = null;
+        highestColor = null;
+        highestBid = 0;
+        running = true;
+        skipPreviouslySoldPlayers = true;
+        plugin.store().setAuctionRunning(true);
+        Bukkit.broadcast(Component.text("Restarting " + tier + "-Tiers. Refunded " + refunded + " auction money."));
+        if (untracked > 0) {
+            Bukkit.broadcast(Component.text(untracked + " earlier sale(s) had no saved winning price, so those amounts could not be refunded."));
+        }
+        beginTier();
+    }
+
     private void beginTier() {
         lineup.clear();
-        lineup.addAll(plugin.store().playersIn(tier));
+        for (String name : plugin.store().playersIn(tier)) {
+            if (!skipPreviouslySoldPlayers || plugin.store().soldTeam(name) == null) lineup.add(name);
+        }
         index = 0;
         Bukkit.broadcast(Component.text("Bidding " + tier.name() + "-Tiers"));
         if (lineup.size() > 8) {
@@ -183,20 +280,12 @@ public final class AuctionManager {
             bossBar = Bukkit.createBossBar("Bidding: " + currentPlayer, BarColor.PURPLE, BarStyle.SOLID);
             bossBar.setProgress(1.0);
             for (Player player : Bukkit.getOnlinePlayers()) bossBar.addPlayer(player);
-            timerTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-                long millis = Math.max(0L, biddingEndsAt - System.currentTimeMillis());
-                double progress = millis / (double) biddingDurationMillis;
-                if (bossBar != null) {
-                    bossBar.setProgress(Math.max(0, Math.min(1, progress)));
-                    bossBar.setTitle("Bidding: " + currentPlayer + " — " + ((millis + 999) / 1000) + "s");
-                }
-                if (millis <= 0) sellCurrent(false);
-            }, 0L, 2L);
+            startTimerTask();
         }, (long) countdown * 20L);
     }
 
     public void acceptBid(Player bidder, int amount) {
-        if (!biddingOpen || !running) {
+        if (!biddingOpen || !running || paused) {
             bidder.sendMessage(Component.text("Bidding is not open right now."));
             return;
         }
@@ -242,6 +331,7 @@ public final class AuctionManager {
         if (!biddingOpen && !manual) return;
         cancelTimer();
         biddingOpen = false;
+        paused = false;
         if (bossBar != null) {
             bossBar.removeAll();
             bossBar = null;
@@ -253,6 +343,7 @@ public final class AuctionManager {
             int left = plugin.store().budget(winner, plugin.getConfig().getInt("starting-budget", 250)) - price;
             plugin.store().setBudget(winner, left);
             plugin.store().setSoldTeam(sold, winner);
+            plugin.store().recordPurchase(sold, tier, winner, price);
             Player player = Bukkit.getPlayerExact(sold);
             if (player != null) plugin.refreshName(player);
             Bukkit.broadcast(Component.text("Sold to Mr " + highestCaptain + " — " + sold + " won by " + winner.name() + " Team for " + price)
@@ -293,6 +384,7 @@ public final class AuctionManager {
         int next = AUCTION_TIERS.indexOf(tier) + 1;
         if (next >= AUCTION_TIERS.size()) {
             running = false;
+            skipPreviouslySoldPlayers = false;
             plugin.store().setAuctionRunning(false);
             currentPlayer = null;
             Bukkit.broadcast(Component.text("The auction is complete."));
@@ -337,6 +429,20 @@ public final class AuctionManager {
             timerTask.cancel();
             timerTask = null;
         }
+    }
+
+    private void startTimerTask() {
+        if (timerTask != null) timerTask.cancel();
+        timerTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (paused || !biddingOpen) return;
+            long millis = Math.max(0L, biddingEndsAt - System.currentTimeMillis());
+            double progress = millis / (double) Math.max(1L, biddingDurationMillis);
+            if (bossBar != null) {
+                bossBar.setProgress(Math.max(0, Math.min(1, progress)));
+                bossBar.setTitle("Bidding: " + currentPlayer + " — " + ((millis + 999) / 1000) + "s");
+            }
+            if (millis <= 0) sellCurrent(false);
+        }, 0L, 2L);
     }
 
     private String ordinal(int number) {

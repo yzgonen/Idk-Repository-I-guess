@@ -22,11 +22,13 @@ Admin commands require `auction.admin` (OPs have it by default).
 
 ## Auction flow
 
-- `/bidding start` starts at A-Tiers. `/auction start` is an equivalent admin shortcut.
+- `/bidding start` starts at A-Tiers or resumes a paused bid. `/auction start` is an equivalent admin shortcut.
 - Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 30-second bidding window. Offline players appear as protected Citizens player NPCs using their account skin.
 - Only S-tier captains can place bids. While bidding is open, a numeric chat message such as `30` becomes a team-colored `I bid 30!` announcement. A-D players' chat is suppressed during that window. Bids must be above the current bid and within that team's remaining 250 auction money. Outbid bids are not charged.
 - Each accepted higher bid adds 10 seconds to that player's bidding timer.
 - `/sell` closes the current player's auction early. Otherwise, the 30-second timer closes it automatically. The winner pays the winning amount, the player is assigned the team's color, and they are sent to that team's `/posteam` location.
+- `/bidding pause` freezes the current bidding timer. `/bidding stop` ends the auction and keeps completed sales and balances.
+- `/bidding restart <A|B|C|D>` clears and reruns that tier. Winning prices recorded in `purchases.yml` are refunded to the teams that paid them. Later tiers' completed sales remain in place and are skipped as the auction continues. Sales from older plugin versions have no saved winning prices and cannot be refunded accurately.
 - A player with no bids is assigned to an eligible team with the most remaining budget. This keeps each team to one player per tier where possible.
 - At the end of D-Tiers, the auction closes. Unused auction money has no season value.
 
@@ -44,6 +46,9 @@ Admin commands require `auction.admin` (OPs have it by default).
 | `/axs set all` | Admin | Saves the normal join location. |
 | `/axs set S` | Admin | Saves the S-tier join location. |
 | `/bidding start` | Admin | Starts the auction. |
+| `/bidding pause` | Admin | Pauses the current bidding timer. Use `/bidding start` to resume. |
+| `/bidding stop` | Admin | Stops the auction without undoing completed sales. |
+| `/bidding restart <A|B|C|D>` | Admin | Refunds recorded winning bids for the selected tier, clears its assignments, and auctions that tier again. |
 | `/sell` | Admin | Ends the current bidding window and sells the current player. |
 | `/auction stop` | Admin | Stops the auction. |
 | `/pvp off` / `/pvp on` | Admin | Applies/removes the server-wide protected mode. |

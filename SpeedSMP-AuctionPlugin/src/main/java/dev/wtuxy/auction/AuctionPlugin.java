@@ -277,7 +277,10 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     private boolean biddingCommand(CommandSender sender, String[] args) {
         if (!admin(sender)) return true;
         if (args.length == 1 && args[0].equalsIgnoreCase("start")) auction.startBidding();
-        else sender.sendMessage(ChatColor.RED + "Usage: /bidding start");
+        else if (args.length == 1 && args[0].equalsIgnoreCase("pause")) auction.pauseBidding();
+        else if (args.length == 1 && args[0].equalsIgnoreCase("stop")) auction.stop();
+        else if (args.length == 2 && args[0].equalsIgnoreCase("restart")) auction.restartTier(args[1]);
+        else sender.sendMessage(ChatColor.RED + "Usage: /bidding <start|pause|stop|restart <A|B|C|D>>");
         return true;
     }
 
@@ -344,7 +347,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
                 sm.setOwningPlayer(offline);
                 TeamColor color = store.colorOf(name);
                 ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-                sm.setDisplayName(ChatColor.GRAY + tier.name() + " - " + nameColor + name);
+                sm.setDisplayName(nameColor + "(" + tier.name() + ") " + name);
                 TeamColor team = color;
                 String status = team == null ? "No team yet" : team.name() + " Team";
                 sm.setLore(List.of(ChatColor.GRAY + status, offline.isOnline() ? ChatColor.GREEN + "Online" : ChatColor.DARK_GRAY + "Offline"));
@@ -380,8 +383,8 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (tier == null) return;
         TeamColor color = store.colorOf(player.getName());
         ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-        String prefix = ChatColor.GRAY + tier.name() + " - ";
-        String tabName = prefix + nameColor + player.getName();
+        String prefix = nameColor + "(" + tier.name() + ") ";
+        String tabName = prefix + player.getName();
         player.setDisplayName(tabName);
         player.setPlayerListName(tabName);
         try {
@@ -393,7 +396,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
             Team existing = scoreboard.getEntryTeam(player.getName());
             if (existing != null && existing != team) existing.removeEntry(player.getName());
             team.setPrefix(prefix);
-            team.setColor(color == null ? ChatColor.WHITE : color.chatColor());
+            team.setColor(nameColor);
             team.addEntry(player.getName());
         } catch (IllegalArgumentException ignored) { }
     }
@@ -572,10 +575,9 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         }
         if (store.tierOf(player.getName()) != null) {
             TeamColor color = store.colorOf(player.getName());
-            ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-            Component display = Component.text(store.tierOf(player.getName()).name() + " - ", net.kyori.adventure.text.format.NamedTextColor.GRAY)
-                    .append(Component.text(player.getName(), adventureColor(color == null ? TeamColor.WHITE : color)))
-                    .append(Component.text(": ", net.kyori.adventure.text.format.NamedTextColor.GRAY))
+            net.kyori.adventure.text.format.TextColor displayColor = color == null
+                    ? net.kyori.adventure.text.format.NamedTextColor.WHITE : adventureColor(color);
+            Component display = Component.text("(" + store.tierOf(player.getName()).name() + ") " + player.getName() + ": ", displayColor)
                     .append(event.message());
             event.renderer((source, sourceDisplayName, message, viewer) -> display);
         }
@@ -692,7 +694,8 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (cmd.equals("axs") && args.length == 1) return "set".startsWith(args[0].toLowerCase()) ? List.of("set") : List.of();
         if (cmd.equals("axs") && args.length == 2) return List.of("all", "S").stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
         if (cmd.equals("auction") && args.length == 1) return List.of("start", "stop").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
-        if (cmd.equals("bidding") && args.length == 1) return "start".startsWith(args[0].toLowerCase()) ? List.of("start") : List.of();
+        if (cmd.equals("bidding") && args.length == 1) return List.of("start", "pause", "stop", "restart").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
+        if (cmd.equals("bidding") && args.length == 2 && args[0].equalsIgnoreCase("restart")) return List.of("A", "B", "C", "D").stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
         if (cmd.equals("pvp") && args.length == 1) return List.of("on", "off").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
         return List.of();
     }
