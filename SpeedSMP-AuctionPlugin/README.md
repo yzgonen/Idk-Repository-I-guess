@@ -15,10 +15,11 @@ Admin commands require `auction.admin` (OPs have it by default).
 
 1. Register players, including offline players. `/tiers add <name> <tier>` also whitelists them. `/tier <name> set <S|A|B|C|D>` changes an existing player's tier.
 2. Set up the eight S-tier captains' colors with `/assign <color> <S-tier-player>`, including while they are offline, or let an online S-tier player choose a free dye color from `/tiers`. The auction requires all eight colors and all eight `/posteam` destinations to be configured before it starts.
-3. Stand at each auction lineup spot and save it with `/pos add 1` through `/pos add 8`. `/pos delete <number>` removes a saved spot.
-4. Stand at each team destination and use `/posteam <color>`.
-5. Set join locations with `/axs set all` and `/axs set S`.
-6. Place the physical barrier blocks around the movement area. Non-S players are limited to a 3-block radius from their assigned/join position. When `/pvp off` is enabled, barriers inside the configured auction area are saved to `barriers.yml` and temporarily opened. Regular players see client-side barriers; S-tier players see air, and OPs can reveal one barrier at a time by looking at it. `/pvp on` restores the saved barriers.
+3. Registered players appear in chat, the player list, and above their character as `( C ) Name`, using their assigned team color or the normal Minecraft name color when unassigned.
+4. Stand at each auction lineup spot and save it with `/pos add 1` through `/pos add 8`. `/pos delete <number>` removes a saved spot.
+5. Stand at each team destination and use `/posteam <color>`.
+6. Set join locations with `/axs set all` and `/axs set S`.
+7. Place the physical barrier blocks around the movement area. Non-S players are limited to a 3-block radius from their assigned/join position. When `/pvp off` is enabled, barriers inside the configured auction area are saved to `barriers.yml` and temporarily opened. Regular players see client-side barriers; S-tier players see air, and OPs can reveal one barrier at a time by looking at it. `/pvp on` restores the saved barriers.
 
 ## Auction flow
 
