@@ -359,7 +359,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
                 sm.setOwningPlayer(offline);
                 TeamColor color = store.colorOf(name);
                 ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-                sm.setDisplayName(nameColor + "( " + tier.name() + " ) " + name);
+                sm.setDisplayName(nameColor + "(" + tier.name() + ") " + name);
                 TeamColor team = color;
                 String status = team == null ? "No team yet" : team.name() + " Team";
                 sm.setLore(List.of(ChatColor.GRAY + status, offline.isOnline() ? ChatColor.GREEN + "Online" : ChatColor.DARK_GRAY + "Offline"));
@@ -395,7 +395,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (tier == null) return;
         TeamColor color = store.colorOf(player.getName());
         ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-        String prefix = nameColor + "( " + tier.name() + " ) ";
+        String prefix = nameColor + "(" + tier.name() + ") ";
         String tabName = prefix + player.getName();
         player.setDisplayName(tabName);
         player.setPlayerListName(tabName);
