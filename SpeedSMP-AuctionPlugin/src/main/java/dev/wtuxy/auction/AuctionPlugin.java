@@ -723,25 +723,29 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
             }
             return;
         }
-        if (store.isPvpOff() && event instanceof EntityDamageByEntityEvent byEntity) {
-            Entity damager = byEntity.getDamager();
-            if (damager instanceof Player || (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player)) event.setCancelled(true);
-        }
+        if (!(event instanceof EntityDamageByEntityEvent byEntity)) return;
+        Entity damager = byEntity.getDamager();
+        Player attacker = damager instanceof Player direct ? direct
+                : damager instanceof Projectile projectile && projectile.getShooter() instanceof Player shooter ? shooter : null;
+        Player target = event.getEntity() instanceof Player player ? player : null;
+        boolean podiumProtection = auction.isRunning()
+                && ((attacker != null && isAuctionPodium(attacker)) || (target != null && isAuctionPodium(target)));
+        if ((store.isPvpOff() && attacker != null) || podiumProtection) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
-        if (store.isPvpOff() || npcs.isStandIn(event.getPlayer())) event.setCancelled(true);
+        if (store.isPvpOff() || isAuctionPodium(event.getPlayer()) || npcs.isStandIn(event.getPlayer())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
-        if (store.isPvpOff()) event.setCancelled(true);
+        if (store.isPvpOff() || isAuctionPodium(event.getPlayer())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInteract(PlayerInteractEvent event) {
-        if (store.isPvpOff()) event.setCancelled(true);
+        if (store.isPvpOff() || isAuctionPodium(event.getPlayer())) event.setCancelled(true);
         if (store.isPvpOff() && event.getClickedBlock() != null && event.getClickedBlock().getType() == Material.BARRIER
                 && store.tierOf(event.getPlayer().getName()) == Tier.S) {
             event.getPlayer().sendBlockChange(event.getClickedBlock().getLocation(), Material.AIR.createBlockData());
@@ -750,19 +754,19 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInteractEntity(PlayerInteractEntityEvent event) {
-        if (store.isPvpOff()) event.setCancelled(true);
+        if (store.isPvpOff() || isAuctionPodium(event.getPlayer())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryOpen(InventoryOpenEvent event) {
-        if (!store.isPvpOff() || !(event.getPlayer() instanceof Player)) return;
+        if (!(event.getPlayer() instanceof Player player) || (!store.isPvpOff() && !isAuctionPodium(player))) return;
         InventoryHolder holder = event.getInventory().getHolder();
         if (holder instanceof BlockState) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDrop(PlayerDropItemEvent event) {
-        if (store.isPvpOff()) event.setCancelled(true);
+        if (store.isPvpOff() || isAuctionPodium(event.getPlayer())) event.setCancelled(true);
     }
 
     @EventHandler
@@ -801,6 +805,10 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
                 event.setTo(safe);
             }
         }
+    }
+
+    private boolean isAuctionPodium(Player player) {
+        return player != null && auction != null && auction.isHeldAtAuctionSpot(player.getName());
     }
 
     private List<String> complete(CommandSender sender, String input) {

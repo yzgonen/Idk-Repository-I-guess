@@ -24,7 +24,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 ## Auction flow
 
 - `/bidding start` starts at A-Tiers or resumes a paused bid. `/auction start` is an equivalent admin shortcut.
-- Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 20-second bidding window. They can jump and look around but cannot walk from their podium. Offline players appear as protected Citizens player NPCs using their account skin.
+- Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 20-second bidding window. They can jump and look around but cannot walk from their podium. While held at a podium, they cannot attack or be attacked by players, break/place blocks, interact with objects, or drop items. Offline players appear as protected Citizens player NPCs using their account skin.
 - Only S-tier captains can place bids. While bidding is open, a numeric chat message such as `30` becomes a team-colored `I bid 30!` announcement. The bidder sees their available credits after the leading bid is reserved; if outbid, those credits become available again. A-D players' chat is suppressed during that window. Bids must be above the current bid and within that team's remaining auction money.
 - The first accepted bid adds 5 seconds. Each later accepted higher bid adds 10 seconds to that player's timer.
 - `/sell` closes the current player's auction early. Otherwise, the 20-second timer closes it automatically. The winner pays the winning amount, the player is assigned the team's color, and they are sent to that team's `/posteam` location.
