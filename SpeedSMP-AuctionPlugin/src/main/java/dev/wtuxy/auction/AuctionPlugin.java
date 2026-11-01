@@ -11,6 +11,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.Particle;
+import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
@@ -256,7 +257,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (store.tierOf(playerName) != Tier.S) { sender.sendMessage(ChatColor.RED + playerName + " must be registered as S-tier first."); return true; }
         String currentCaptain = store.captain(color);
         if (currentCaptain != null && !currentCaptain.equalsIgnoreCase(playerName)) {
-            sender.sendMessage(ChatColor.RED + color + " is already assigned to " + currentCaptain + ".");
+            sender.sendMessage(ChatColor.RED + color.name() + " is already assigned to " + currentCaptain + ".");
             return true;
         }
         store.setCaptain(color, playerName);
@@ -450,22 +451,40 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
 
     private void saveEffectSnapshot(UUID id, Collection<PotionEffect> effects) {
         List<Map<String, Object>> serialized = new ArrayList<>();
-        for (PotionEffect effect : effects) serialized.add(effect.serialize());
+        for (PotionEffect effect : effects) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("type", effect.getType().getKey().getKey());
+            row.put("duration", effect.getDuration());
+            row.put("amplifier", effect.getAmplifier());
+            row.put("ambient", effect.isAmbient());
+            row.put("particles", effect.hasParticles());
+            row.put("icon", effect.hasIcon());
+            serialized.add(row);
+        }
         getConfig().set("previous-effects." + id, serialized);
     }
 
-    @SuppressWarnings("unchecked")
     private List<PotionEffect> loadEffectSnapshot(UUID id) {
         List<?> values = getConfig().getList("previous-effects." + id);
         if (values == null) return List.of();
         List<PotionEffect> effects = new ArrayList<>();
         for (Object value : values) {
             if (!(value instanceof Map<?, ?> raw)) continue;
-            Map<String, Object> mapped = new HashMap<>();
-            raw.forEach((key, entry) -> mapped.put(String.valueOf(key), entry));
-            try { effects.add(PotionEffect.deserialize(mapped)); } catch (IllegalArgumentException ignored) { }
+            String typeKey = String.valueOf(raw.get("type"));
+            PotionEffectType type = Registry.POTION_EFFECT_TYPE.get(NamespacedKey.minecraft(typeKey));
+            if (type == null) continue;
+            int duration = number(raw.get("duration"), 0);
+            int amplifier = number(raw.get("amplifier"), 0);
+            boolean ambient = Boolean.TRUE.equals(raw.get("ambient"));
+            boolean particles = !Boolean.FALSE.equals(raw.get("particles"));
+            boolean icon = !Boolean.FALSE.equals(raw.get("icon"));
+            if (duration > 0) effects.add(new PotionEffect(type, duration, amplifier, ambient, particles, icon));
         }
         return effects;
+    }
+
+    private int number(Object value, int fallback) {
+        return value instanceof Number number ? number.intValue() : fallback;
     }
 
     private void hideNearbyBarriers(Player player) {
