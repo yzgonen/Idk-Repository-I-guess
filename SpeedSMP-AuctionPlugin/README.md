@@ -13,8 +13,8 @@ Put both `Citizens.jar` and `auction-plugin-1.0.0.jar` in `plugins/`, then resta
 
 Admin commands require `auction.admin` (OPs have it by default).
 
-1. Register players, including offline players. `/tiers add <name> <tier>` also whitelists them. `/tier <name> set <S|A|B|C|D>` changes an existing player's tier.
-2. Set up the eight S-tier captains' colors with `/assign <color> <S-tier-player>`, including while they are offline, or let an online S-tier player choose a free dye color from `/tiers`. The auction requires all eight colors and all eight `/posteam` destinations to be configured before it starts.
+1. Register players, including offline players. `/tiers add <name> <tier>` also whitelists them. `/tier <name> set <S|A|B|C|D>` changes a tier; `/tier <name> remove` removes the tier assignment.
+2. Set up the eight S-tier captains' colors with `/assign <color> <S-tier-player>`, including while they are offline, or let an online S-tier player choose a free dye color from `/tiers`. Use `/assign remove <S-tier-player>` to free a captain color. Use `/assignp <color> <player>` and `/assignp remove <player>` for normal players. The auction requires all eight colors and all eight `/posteam` destinations to be configured before it starts.
 3. Registered players appear in chat, the player list, and above their character as `(C) Name`, using their assigned team color or the normal Minecraft name color when unassigned.
 4. Stand at each auction lineup spot and save it with `/pos add 1` through `/pos add 8`. `/pos delete <number>` removes a saved spot.
 5. Stand at each team destination and use `/posteam <color>`.
@@ -25,7 +25,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 
 - `/bidding start` starts at A-Tiers or resumes a paused bid. `/auction start` is an equivalent admin shortcut.
 - Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 20-second bidding window. They can jump and look around but cannot walk from their podium. Offline players appear as protected Citizens player NPCs using their account skin.
-- Only S-tier captains can place bids. While bidding is open, a numeric chat message such as `30` becomes a team-colored `I bid 30!` announcement. A-D players' chat is suppressed during that window. Bids must be above the current bid and within that team's remaining 250 auction money. Outbid bids are not charged.
+- Only S-tier captains can place bids. While bidding is open, a numeric chat message such as `30` becomes a team-colored `I bid 30!` announcement. The bidder sees their available credits after the leading bid is reserved; if outbid, those credits become available again. A-D players' chat is suppressed during that window. Bids must be above the current bid and within that team's remaining auction money.
 - The first accepted bid adds 5 seconds. Each later accepted higher bid adds 10 seconds to that player's timer.
 - `/sell` closes the current player's auction early. Otherwise, the 20-second timer closes it automatically. The winner pays the winning amount, the player is assigned the team's color, and they are sent to that team's `/posteam` location.
 - `/bidding pause` freezes the current bidding timer. `/bidding stop` ends the auction and keeps completed sales and balances.
@@ -40,7 +40,15 @@ Admin commands require `auction.admin` (OPs have it by default).
 | `/tiers` | Everyone | Opens the tier GUI; S-tier players can choose an unclaimed color there. |
 | `/tiers add <name> <tier>` | Admin | Adds an online or offline player to a tier and whitelists them. |
 | `/tier <name> set <tier>` | Admin | Changes a player's tier. |
+| `/tier <name> remove` | Admin | Removes a player's tier assignment; removing S-tier also frees their captain color. |
 | `/assign <color> <S-tier-player>` | Admin | Assigns a color to an S-tier captain, online or offline. |
+| `/assign remove <S-tier-player>` | Admin | Removes an S-tier captain's color, freeing it. |
+| `/assignp <color> <player>` | Admin | Assigns a normal player to a team, online or offline. |
+| `/assignp remove <player>` | Admin | Removes a normal player's team assignment. |
+| `/credits` | Everyone | Shows your assigned team's available auction credits. |
+| `/credits <player>` | Admin | Shows that player's team's available credits. |
+| `/credits add <player> <amount>` | Admin | Adds credits to that player's shared team balance. |
+| `/credits remove <player> <amount>` | Admin | Removes available credits from that player's shared team balance. |
 | `/pos add <1-8>` | Admin | Saves a lineup location at your current position. |
 | `/pos delete <1-8>` | Admin | Deletes a saved lineup location. |
 | `/posteam <color>` | Admin | Saves the team's sale destination at your current position. |

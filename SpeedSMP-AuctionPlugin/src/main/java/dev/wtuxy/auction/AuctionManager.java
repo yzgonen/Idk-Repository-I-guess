@@ -52,6 +52,11 @@ public final class AuctionManager {
     public boolean isBiddingOpen() { return biddingOpen; }
     public boolean isPaused() { return paused; }
     public String currentPlayer() { return currentPlayer; }
+    public int availableCredits(TeamColor color) {
+        int total = plugin.store().budget(color, plugin.getConfig().getInt("starting-budget", 250));
+        int reserved = biddingOpen && highestColor == color ? highestBid : 0;
+        return Math.max(0, total - reserved);
+    }
 
     public boolean isHeldAtAuctionSpot(String playerName) {
         return (currentPlayer != null && currentPlayer.equalsIgnoreCase(playerName)
@@ -338,6 +343,9 @@ public final class AuctionManager {
             bidder.sendMessage(Component.text("Your team already has a " + tier + "-tier player."));
             return;
         }
+        String previousCaptain = highestCaptain;
+        TeamColor previousColor = highestColor;
+        int previousBid = highestBid;
         highestCaptain = bidder.getName();
         highestColor = color;
         highestBid = amount;
@@ -349,6 +357,14 @@ public final class AuctionManager {
         biddingEndsAt += extensionMillis;
         biddingDurationMillis += extensionMillis;
         Bukkit.broadcast(Component.text("I bid " + amount + "!").color(plugin.adventureColor(color)));
+        bidder.sendMessage(Component.text("You bid " + amount + "! Your team has " + availableCredits(color)
+                + " auction credits left while your bid is leading. If another team outbids you, your bid is returned."));
+        if (previousCaptain != null && previousColor != null && previousColor != color) {
+            Player outbid = Bukkit.getPlayerExact(previousCaptain);
+            if (outbid != null) outbid.sendMessage(Component.text("Your " + previousBid
+                    + " credit bid was outbid. Those credits are available again; your team now has "
+                    + availableCredits(previousColor) + " available."));
+        }
     }
 
     public void sellCommand() { sellCurrent(true); }

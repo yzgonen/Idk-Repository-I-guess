@@ -8,8 +8,8 @@ commands:
     description: View the tier list or add a player
     usage: /tiers [add <name> <tier>|colors]
   tier:
-    description: Set a player's tier
-    usage: /tier <name> set <S|A|B|C|D>
+    description: Set or remove a player's tier
+    usage: /tier <name> <set <S|A|B|C|D>|remove>
   pos:
     description: Configure auction lineup positions
     usage: /pos <add|delete> <1-8>
@@ -17,8 +17,14 @@ commands:
     description: Set a team teleport position
     usage: /posteam <color>
   assign:
-    description: Assign a team color to an S-tier player
-    usage: /assign <color> <S-tier-player>
+    description: Assign or clear an S-tier captain color
+    usage: /assign <color> <S-tier-player> or /assign remove <S-tier-player>
+  assignp:
+    description: Assign or clear a normal player's team
+    usage: /assignp <color> <player> or /assignp remove <player>
+  credits:
+    description: Check or manage a team's auction credits
+    usage: /credits [player|add <player> <amount>|remove <player> <amount>]
   axs:
     description: Set regular or S-tier join spawn
     usage: /axs set <all|S>

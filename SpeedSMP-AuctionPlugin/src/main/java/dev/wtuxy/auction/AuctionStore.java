@@ -36,6 +36,15 @@ public final class AuctionStore {
         save();
     }
 
+    public void removeTier(String name) {
+        String key = playerKey(name);
+        Tier previousTier = tierOf(name);
+        data.set("players." + key + ".name", storedName(name));
+        data.set("players." + key + ".tier", null);
+        if (previousTier == Tier.S) clearCaptainAssignment(name, false);
+        save();
+    }
+
     public Tier tierOf(String name) {
         String value = data.getString("players." + playerKey(name) + ".tier");
         if (value == null) return null;
@@ -85,6 +94,28 @@ public final class AuctionStore {
         save();
     }
 
+    public boolean clearCaptainAssignment(String name) {
+        return clearCaptainAssignment(name, true);
+    }
+
+    private boolean clearCaptainAssignment(String name, boolean saveAfter) {
+        boolean changed = false;
+        for (TeamColor color : TeamColor.values()) {
+            String captain = captain(color);
+            if (captain != null && captain.equalsIgnoreCase(name)) {
+                data.set("captains." + color.name(), null);
+                changed = true;
+            }
+        }
+        String key = playerKey(name);
+        if (data.contains("players." + key + ".team-color")) {
+            data.set("players." + key + ".team-color", null);
+            changed = true;
+        }
+        if (saveAfter) save();
+        return changed;
+    }
+
     public String captain(TeamColor color) { return data.getString("captains." + color.name()); }
 
     public TeamColor colorOf(String name) {
@@ -102,6 +133,14 @@ public final class AuctionStore {
     public void assignTeam(String player, TeamColor color) {
         data.set("players." + playerKey(player) + ".name", player);
         data.set("players." + playerKey(player) + ".team-color", color.name());
+        data.set("sold." + playerKey(player), color.name());
+        save();
+    }
+
+    public void clearTeamAssignment(String player) {
+        String key = playerKey(player);
+        data.set("players." + key + ".team-color", null);
+        data.set("sold." + key, null);
         save();
     }
 

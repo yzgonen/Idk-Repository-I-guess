@@ -86,7 +86,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         npcs = new OfflineNpcService(this);
         auction = new AuctionManager(this);
         getServer().getPluginManager().registerEvents(this, this);
-        for (String command : List.of("tiers", "tier", "pos", "posteam", "axs", "assign", "auction", "bidding", "sell", "pvp")) {
+        for (String command : List.of("tiers", "tier", "pos", "posteam", "axs", "assign", "assignp", "credits", "auction", "bidding", "sell", "pvp")) {
             if (getCommand(command) != null) {
                 getCommand(command).setExecutor(this);
                 getCommand(command).setTabCompleter(this);
@@ -133,6 +133,8 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (cmd.equals("posteam")) return teamPositionCommand(sender, args);
         if (cmd.equals("axs")) return axsCommand(sender, args);
         if (cmd.equals("assign")) return assignCommand(sender, args);
+        if (cmd.equals("assignp")) return assignPlayerCommand(sender, args);
+        if (cmd.equals("credits")) return creditsCommand(sender, args);
         if (cmd.equals("auction")) return auctionCommand(sender, args);
         if (cmd.equals("bidding")) return biddingCommand(sender, args);
         if (cmd.equals("sell")) return sellCommand(sender);
@@ -189,8 +191,25 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
 
     private boolean tierCommand(CommandSender sender, String[] args) {
         if (!admin(sender)) return true;
+        if (args.length == 2 && args[1].equalsIgnoreCase("remove")) {
+            if (!validPlayerName(args[0])) {
+                sender.sendMessage(ChatColor.RED + "Enter a valid Minecraft username.");
+                return true;
+            }
+            Tier oldTier = store.tierOf(args[0]);
+            if (oldTier == null) {
+                sender.sendMessage(ChatColor.YELLOW + args[0] + " does not currently have a tier.");
+                return true;
+            }
+            store.removeTier(args[0]);
+            Player online = Bukkit.getPlayerExact(args[0]);
+            if (online != null) refreshName(online);
+            sender.sendMessage(ChatColor.GREEN + "Removed " + args[0] + "'s " + oldTier + "-Tier assignment.");
+            if (oldTier == Tier.S) sender.sendMessage(ChatColor.GRAY + "Their S-tier captain color was also freed.");
+            return true;
+        }
         if (args.length != 3 || !args[1].equalsIgnoreCase("set")) {
-            sender.sendMessage(ChatColor.RED + "Usage: /tier <name> set <S|A|B|C|D>");
+            sender.sendMessage(ChatColor.RED + "Usage: /tier <name> <set <S|A|B|C|D>|remove>");
             return true;
         }
         try {
@@ -257,10 +276,21 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
 
     private boolean assignCommand(CommandSender sender, String[] args) {
         if (!admin(sender)) return true;
-        if (args.length != 2) { sender.sendMessage(ChatColor.RED + "Usage: /assign <color> <S-tier-player>"); return true; }
+        if (args.length != 2) { sender.sendMessage(ChatColor.RED + "Usage: /assign <color> <S-tier-player> or /assign remove <S-tier-player>"); return true; }
+        if (args[0].equalsIgnoreCase("remove")) {
+            String playerName = args[1];
+            if (!validPlayerName(playerName)) { sender.sendMessage(ChatColor.RED + "Enter a valid Minecraft username."); return true; }
+            if (store.tierOf(playerName) != Tier.S) { sender.sendMessage(ChatColor.RED + "Use /assignp remove <player> for a normal player."); return true; }
+            if (!store.clearCaptainAssignment(playerName)) { sender.sendMessage(ChatColor.YELLOW + playerName + " has no assigned captain color."); return true; }
+            Player online = Bukkit.getPlayerExact(playerName);
+            if (online != null) refreshName(online);
+            sender.sendMessage(ChatColor.GREEN + "Removed " + playerName + "'s S-tier team color. The color is free again.");
+            return true;
+        }
         TeamColor color;
         try { color = TeamColor.parse(args[0]); } catch (IllegalArgumentException e) { sender.sendMessage(ChatColor.RED + "Choose purple, blue, white, yellow, orange, red, green, or black."); return true; }
         String playerName = args[1];
+        if (!validPlayerName(playerName)) { sender.sendMessage(ChatColor.RED + "Enter a valid Minecraft username."); return true; }
         if (store.tierOf(playerName) != Tier.S) { sender.sendMessage(ChatColor.RED + playerName + " must be registered as S-tier first."); return true; }
         String currentCaptain = store.captain(color);
         if (currentCaptain != null && !currentCaptain.equalsIgnoreCase(playerName)) {
@@ -271,6 +301,112 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         refreshOnlineNames();
         sender.sendMessage(color.chatColor() + playerName + " is now the " + color.name() + " Team captain.");
         return true;
+    }
+
+    private boolean assignPlayerCommand(CommandSender sender, String[] args) {
+        if (!admin(sender)) return true;
+        if (args.length != 2) {
+            sender.sendMessage(ChatColor.RED + "Usage: /assignp <color> <player> or /assignp remove <player>");
+            return true;
+        }
+        String playerName = args[1];
+        if (!validPlayerName(playerName)) {
+            sender.sendMessage(ChatColor.RED + "Enter a valid Minecraft username.");
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("remove")) {
+            if (store.tierOf(playerName) == Tier.S) {
+                sender.sendMessage(ChatColor.RED + "Use /assign remove <S-tier-player> to free an S-tier color.");
+                return true;
+            }
+            if (store.colorOf(playerName) == null && store.soldTeam(playerName) == null) {
+                sender.sendMessage(ChatColor.YELLOW + playerName + " has no team assignment.");
+                return true;
+            }
+            store.clearTeamAssignment(playerName);
+            Player online = Bukkit.getPlayerExact(playerName);
+            if (online != null) refreshName(online);
+            sender.sendMessage(ChatColor.GREEN + "Removed " + playerName + "'s team assignment.");
+            return true;
+        }
+        TeamColor color;
+        try { color = TeamColor.parse(args[0]); }
+        catch (IllegalArgumentException e) {
+            sender.sendMessage(ChatColor.RED + "Choose purple, blue, white, yellow, orange, red, green, or black.");
+            return true;
+        }
+        if (store.tierOf(playerName) == Tier.S) {
+            sender.sendMessage(ChatColor.RED + "Use /assign <color> <S-tier-player> for S-tier captains.");
+            return true;
+        }
+        store.assignTeam(playerName, color);
+        Player online = Bukkit.getPlayerExact(playerName);
+        if (online != null) refreshName(online);
+        sender.sendMessage(color.chatColor() + playerName + " is assigned to the " + color.name() + " Team.");
+        return true;
+    }
+
+    private boolean creditsCommand(CommandSender sender, String[] args) {
+        if (args.length == 0) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(ChatColor.RED + "Usage: /credits <player> or /credits <add|remove> <player> <amount>");
+                return true;
+            }
+            showCredits(sender, player.getName());
+            return true;
+        }
+        if (args.length == 1) {
+            if (!admin(sender)) return true;
+            showCredits(sender, args[0]);
+            return true;
+        }
+        if (args.length != 3 || !(args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
+            sender.sendMessage(ChatColor.RED + "Usage: /credits [player|add <player> <amount>|remove <player> <amount>]");
+            return true;
+        }
+        if (!admin(sender)) return true;
+        String playerName = args[1];
+        if (!validPlayerName(playerName)) {
+            sender.sendMessage(ChatColor.RED + "Enter a valid Minecraft username.");
+            return true;
+        }
+        TeamColor color = store.colorOf(playerName);
+        if (color == null) {
+            sender.sendMessage(ChatColor.RED + playerName + " is not assigned to a team. Assign them first with /assign or /assignp.");
+            return true;
+        }
+        int amount;
+        try { amount = Integer.parseInt(args[2]); }
+        catch (NumberFormatException ex) { sender.sendMessage(ChatColor.RED + "Amount must be a positive whole number."); return true; }
+        if (amount <= 0) { sender.sendMessage(ChatColor.RED + "Amount must be greater than zero."); return true; }
+        int budget = store.budget(color, getConfig().getInt("starting-budget", 250));
+        if (args[0].equalsIgnoreCase("add")) {
+            long updated = (long) budget + amount;
+            if (updated > Integer.MAX_VALUE) { sender.sendMessage(ChatColor.RED + "That amount is too large."); return true; }
+            store.setBudget(color, (int) updated);
+        } else {
+            int available = auction.availableCredits(color);
+            if (amount > available) {
+                sender.sendMessage(ChatColor.RED + "Only " + available + " credits are available to remove; a leading bid may be reserved.");
+                return true;
+            }
+            store.setBudget(color, budget - amount);
+        }
+        sender.sendMessage(color.chatColor().toString() + playerName + "'s " + color.name() + " Team balance is now "
+                + auction.availableCredits(color) + " available credits (" + store.budget(color, 250) + " total remaining).");
+        return true;
+    }
+
+    private void showCredits(CommandSender sender, String playerName) {
+        TeamColor color = store.colorOf(playerName);
+        if (color == null) {
+            sender.sendMessage(ChatColor.RED + playerName + " is not assigned to a team.");
+            return;
+        }
+        int total = store.budget(color, getConfig().getInt("starting-budget", 250));
+        int available = auction.availableCredits(color);
+        sender.sendMessage(color.chatColor() + playerName + "'s " + color.name() + " Team has " + available
+                + " auction credits available" + (available == total ? "." : " (" + (total - available) + " currently reserved in the leading bid; total remaining: " + total + ")."));
     }
 
     private boolean auctionCommand(CommandSender sender, String[] args) {
@@ -392,10 +528,9 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
 
     void refreshName(Player player) {
         Tier tier = store.tierOf(player.getName());
-        if (tier == null) return;
         TeamColor color = store.colorOf(player.getName());
         ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-        String prefix = nameColor + "(" + tier.name() + ") ";
+        String prefix = tier == null ? "" : nameColor + "(" + tier.name() + ") ";
         String tabName = prefix + player.getName();
         player.setDisplayName(tabName);
         player.setPlayerListName(tabName);
@@ -686,12 +821,27 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         }
         if (cmd.equals("tier")) {
             if (args.length == 1) return complete(sender, args[0]);
-            if (args.length == 2) return "set".startsWith(args[1].toLowerCase()) ? List.of("set") : List.of();
-            if (args.length == 3) return List.of("S", "A", "B", "C", "D").stream().filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase())).toList();
+            if (args.length == 2) return List.of("set", "remove").stream().filter(s -> s.startsWith(args[1].toLowerCase())).toList();
+            if (args.length == 3 && args[1].equalsIgnoreCase("set")) return List.of("S", "A", "B", "C", "D").stream().filter(s -> s.toLowerCase().startsWith(args[2].toLowerCase())).toList();
         }
-        if (cmd.equals("assign")) {
-            if (args.length == 1) return Arrays.stream(TeamColor.values()).map(c -> c.name().toLowerCase()).filter(s -> s.startsWith(args[0].toLowerCase())).toList();
-            if (args.length == 2) return store.playersIn(Tier.S).stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
+        if (cmd.equals("assign") || cmd.equals("assignp")) {
+            if (args.length == 1) {
+                List<String> options = new ArrayList<>(Arrays.stream(TeamColor.values()).map(c -> c.name().toLowerCase()).toList());
+                options.add("remove");
+                return options.stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
+            }
+            if (args.length == 2 && cmd.equals("assign")) return store.playersIn(Tier.S).stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
+            if (args.length == 2 && cmd.equals("assignp")) return store.allNames().stream().filter(s -> store.tierOf(s) != Tier.S && s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
+        }
+        if (cmd.equals("credits")) {
+            if (args.length == 1) {
+                List<String> options = new ArrayList<>(List.of("add", "remove"));
+                if (sender.hasPermission("auction.admin") || sender.isOp()) options.addAll(store.allNames());
+                return options.stream().filter(s -> s.toLowerCase().startsWith(args[0].toLowerCase())).distinct().toList();
+            }
+            if (args.length == 2 && (args[0].equalsIgnoreCase("add") || args[0].equalsIgnoreCase("remove"))) {
+                return store.allNames().stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
+            }
         }
         if (cmd.equals("pos")) {
             if (args.length == 1) return List.of("add", "delete").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
