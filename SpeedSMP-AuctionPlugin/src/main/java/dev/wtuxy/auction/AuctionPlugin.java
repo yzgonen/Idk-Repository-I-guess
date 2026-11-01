@@ -1,6 +1,7 @@
 package dev.wtuxy.auction;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.event.player.AsyncPlayerSpawnLocationEvent;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
@@ -39,6 +40,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -640,13 +642,35 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     }
 
     private Location joinLocation(Player player) {
-        Location auctionLocation = auction.currentPosition(player.getName());
+        return joinLocation(player.getName());
+    }
+
+    private Location joinLocation(String playerName) {
+        Location auctionLocation = auction.currentPosition(playerName);
         if (auctionLocation != null) return auctionLocation;
-        TeamColor sold = store.soldTeam(player.getName());
+        return configuredJoinLocation(playerName);
+    }
+
+    private Location configuredJoinLocation(String playerName) {
+        TeamColor sold = store.soldTeam(playerName);
         if (sold != null && store.teamPosition(sold) != null) return store.teamPosition(sold);
-        Tier tier = store.tierOf(player.getName());
+        Tier tier = store.tierOf(playerName);
         if (tier == Tier.S && store.joinSpawn("S") != null) return store.joinSpawn("S");
         return store.joinSpawn("all");
+    }
+
+    @EventHandler
+    public void onAsyncSpawnLocation(AsyncPlayerSpawnLocationEvent event) {
+        String playerName = event.getConnection().getProfile().getName();
+        if (playerName == null) return;
+        Location configured = configuredJoinLocation(playerName);
+        if (configured != null) event.setSpawnLocation(configured);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onRespawn(PlayerRespawnEvent event) {
+        Location configured = joinLocation(event.getPlayer());
+        if (configured != null) event.setRespawnLocation(configured);
     }
 
     @EventHandler
