@@ -1,0 +1,15 @@
+starting-budget: 250
+bidding-seconds: 30
+countdown-seconds: 3
+pvp-off: false
+players: {}
+captains: {}
+team-budgets: {}
+positions: {}
+team-spawns: {}
+spawns: {}
+sold: {}
+auction:
+  running: false
+  tier: A
+  index: 0

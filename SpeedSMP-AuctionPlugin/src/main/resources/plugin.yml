@@ -1,0 +1,40 @@
+name: SpeedSMPAuction
+version: 1.0.0
+main: dev.wtuxy.auction.AuctionPlugin
+api-version: '1.21'
+depend: [Citizens]
+commands:
+  tiers:
+    description: View the tier list or add a player
+    usage: /tiers [add <name> <tier>|colors]
+  tier:
+    description: Set a player's tier
+    usage: /tier <name> set <S|A|B|C|D>
+  pos:
+    description: Configure auction lineup positions
+    usage: /pos <add|delete> <1-8>
+  posteam:
+    description: Set a team teleport position
+    usage: /posteam <color>
+  assign:
+    description: Assign a team color to an S-tier player
+    usage: /assign <color> <S-tier-player>
+  axs:
+    description: Set regular or S-tier join spawn
+    usage: /axs set <all|S>
+  auction:
+    description: Start or stop the auction
+    usage: /auction <start|stop>
+  bidding:
+    description: Start the current player's live bidding
+    usage: /bidding start
+  sell:
+    description: Sell the current player to the highest bidder
+    usage: /sell
+  pvp:
+    description: Toggle server-wide auction protection mode
+    usage: /pvp <on|off>
+permissions:
+  auction.admin:
+    description: Manage auction setup and controls
+    default: op

@@ -1,0 +1,38 @@
+name: Build Auction Plugin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "SpeedSMP-AuctionPlugin/**"
+      - ".github/workflows/build-auction-plugin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Paper 1.21.11 plugin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: SpeedSMP-AuctionPlugin/pom.xml
+
+      - name: Build plugin JAR
+        run: mvn --batch-mode --no-transfer-progress -f SpeedSMP-AuctionPlugin/pom.xml package -DskipTests
+
+      - name: Upload plugin JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: speedsmp-auction-plugin
+          path: SpeedSMP-AuctionPlugin/target/auction-plugin-1.0.0.jar
+          if-no-files-found: error
