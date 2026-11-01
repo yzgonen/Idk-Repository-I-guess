@@ -68,6 +68,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     private AuctionStore store;
     private AuctionManager auction;
     private OfflineNpcService npcs;
+    private BarrierPassService barrierPass;
     private final Map<UUID, Location> movementAnchors = new HashMap<>();
     private final Map<UUID, GameMode> modeBeforePvpOff = new HashMap<>();
     private final Map<UUID, List<PotionEffect>> effectsBeforePvpOff = new HashMap<>();
@@ -81,6 +82,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         saveDefaultConfig();
         tierMenuKey = new NamespacedKey(this, "tier-menu-item");
         store = new AuctionStore(this);
+        barrierPass = new BarrierPassService(this);
         npcs = new OfflineNpcService(this);
         auction = new AuctionManager(this);
         getServer().getPluginManager().registerEvents(this, this);
@@ -90,6 +92,8 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
                 getCommand(command).setTabCompleter(this);
             }
         }
+        if (store.isPvpOff()) barrierPass.openPassages();
+        else barrierPass.restore();
         for (Player player : Bukkit.getOnlinePlayers()) {
             refreshName(player);
             if (store.isPvpOff()) applyPvpOff(player);
@@ -302,11 +306,13 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (args[0].equalsIgnoreCase("off")) {
             if (store.isPvpOff()) { sender.sendMessage(ChatColor.YELLOW + "PvP mode is already off."); return true; }
             store.setPvpOff(true);
+            barrierPass.openPassages();
             for (Player player : Bukkit.getOnlinePlayers()) applyPvpOff(player);
             Bukkit.broadcast(Component.text("PvP is off. Server protection mode is enabled."));
         } else if (args[0].equalsIgnoreCase("on")) {
             if (!store.isPvpOff()) { sender.sendMessage(ChatColor.YELLOW + "PvP mode is already on."); return true; }
             store.setPvpOff(false);
+            barrierPass.restore();
             for (Player player : Bukkit.getOnlinePlayers()) restorePvpOn(player);
             Bukkit.broadcast(Component.text("PvP is on. Normal server behavior is restored."));
         } else sender.sendMessage(ChatColor.RED + "Usage: /pvp <on|off>");
@@ -431,7 +437,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         player.setInvulnerable(false);
         if (tier != Tier.S && !player.isOp()) movementAnchors.put(id, player.getLocation().clone());
         refreshName(player);
-        if (tier == Tier.S) hideNearbyBarriers(player);
+        barrierPass.updateClientView(player);
     }
 
     private void restorePvpOn(Player player) {
@@ -455,7 +461,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         getConfig().set("previous-effects." + id, null);
         saveConfig();
         refreshName(player);
-        refreshNearbyBarrierView(player);
+        barrierPass.updateClientView(player);
     }
 
     private void saveEffectSnapshot(UUID id, Collection<PotionEffect> effects) {
@@ -496,32 +502,6 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         return value instanceof Number number ? number.intValue() : fallback;
     }
 
-    private void hideNearbyBarriers(Player player) {
-        Location center = player.getLocation();
-        World world = center.getWorld();
-        if (world == null) return;
-        int radius = 8;
-        for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++)
-            for (int y = Math.max(world.getMinHeight(), center.getBlockY() - radius); y <= Math.min(world.getMaxHeight() - 1, center.getBlockY() + radius); y++)
-                for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
-                    var block = world.getBlockAt(x, y, z);
-                    if (block.getType() == Material.BARRIER) player.sendBlockChange(block.getLocation(), Material.AIR.createBlockData());
-                }
-    }
-
-    private void refreshNearbyBarrierView(Player player) {
-        Location center = player.getLocation();
-        World world = center.getWorld();
-        if (world == null) return;
-        int radius = 8;
-        for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++)
-            for (int y = Math.max(world.getMinHeight(), center.getBlockY() - radius); y <= Math.min(world.getMaxHeight() - 1, center.getBlockY() + radius); y++)
-                for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
-                    var block = world.getBlockAt(x, y, z);
-                    if (block.getType() == Material.BARRIER) player.sendBlockChange(block.getLocation(), block.getBlockData());
-                }
-    }
-
     private Location joinLocation(Player player) {
         Location auctionLocation = auction.currentPosition(player.getName());
         if (auctionLocation != null) return auctionLocation;
@@ -550,14 +530,15 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
                     && auction.currentPosition(player.getName()) != null) {
                 Bukkit.getScheduler().runTask(this, () -> setMovementAnchor(player, join));
             }
-            if (success && store.isPvpOff() && store.tierOf(player.getName()) == Tier.S) {
-                Bukkit.getScheduler().runTask(this, () -> hideNearbyBarriers(player));
-            }
+            if (success && store.isPvpOff()) Bukkit.getScheduler().runTask(this, () -> barrierPass.updateClientView(player));
         }), 2L);
     }
 
     @EventHandler
-    public void onQuit(PlayerQuitEvent event) { movementAnchors.remove(event.getPlayer().getUniqueId()); }
+    public void onQuit(PlayerQuitEvent event) {
+        movementAnchors.remove(event.getPlayer().getUniqueId());
+        barrierPass.forgetClient(event.getPlayer());
+    }
 
     @EventHandler
     public void onChat(AsyncChatEvent event) {
@@ -673,11 +654,7 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
                 event.setTo(locked);
             }
         }
-        if (store.isPvpOff() && store.tierOf(player.getName()) == Tier.S) {
-            int chunkKey = (event.getTo().getBlockX() >> 4) * 31 + (event.getTo().getBlockZ() >> 4);
-            Integer previous = lastBarrierScan.put(player.getUniqueId(), chunkKey);
-            if (previous == null || previous != chunkKey) hideNearbyBarriers(player);
-        }
+        if (store.isPvpOff()) barrierPass.updateClientView(player);
         if (store.isPvpOff() && !player.isOp() && store.tierOf(player.getName()) != Tier.S) {
             Location anchor = movementAnchors.get(player.getUniqueId());
             if (anchor != null && anchor.getWorld().equals(event.getTo().getWorld()) && anchor.distanceSquared(event.getTo()) > 9.0) {

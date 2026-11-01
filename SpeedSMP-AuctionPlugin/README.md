@@ -18,7 +18,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 3. Stand at each auction lineup spot and save it with `/pos add 1` through `/pos add 8`. `/pos delete <number>` removes a saved spot.
 4. Stand at each team destination and use `/posteam <color>`.
 5. Set join locations with `/axs set all` and `/axs set S`.
-6. Place the physical barrier blocks around the movement area. Non-S players are limited to a 3-block radius from their assigned/join position. `/pvp off` keeps S-tier players and OPs out of spectator mode and hides nearby barriers from S-tier clients. Paper still enforces server-side collision for those barriers.
+6. Place the physical barrier blocks around the movement area. Non-S players are limited to a 3-block radius from their assigned/join position. When `/pvp off` is enabled, barriers inside the configured auction area are saved to `barriers.yml` and temporarily opened. Regular players see client-side barriers; S-tier players see air, and OPs can reveal one barrier at a time by looking at it. `/pvp on` restores the saved barriers.
 
 ## Auction flow
 
@@ -54,7 +54,7 @@ Admin commands require `auction.admin` (OPs have it by default).
 | `/auction npcs clear` | Admin | Removes saved auction stand-in NPCs while keeping the roster. |
 | `/pvp off` / `/pvp on` | Admin | Applies/removes the server-wide protected mode. |
 
-`/pvp off` affects current players and future joiners. It disables player-versus-player damage, applies invisibility and Saturation 255, prevents block breaking/placing and block/entity/container interactions, and uses Adventure mode for non-S players. S-tier players and OPs keep their saved game mode (they are not put in spectator); nearby barriers are hidden from S-tier clients, but Paper still enforces server-side barrier collision. `/pvp on` restores saved game modes and removes those effects.
+`/pvp off` affects current players and future joiners. It disables player-versus-player damage, applies invisibility and Saturation 255, prevents block breaking/placing and block/entity/container interactions, and uses Adventure mode for non-S players. S-tier players and OPs keep their saved game mode (they are not put in spectator). Arena barrier blocks are temporarily removed server-side so S-tier players and OPs can pass; regular players receive a client-side barrier view. `/pvp on` restores the barriers, saved game modes, and prior potion effects.
 
 ## Offline players
 
