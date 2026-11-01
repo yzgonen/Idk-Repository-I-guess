@@ -19,6 +19,7 @@ public final class AuctionManager {
     private final AuctionPlugin plugin;
     private Tier tier = Tier.A;
     private final List<String> lineup = new ArrayList<>();
+    private final List<String> pendingLeftovers = new ArrayList<>();
     private int index;
     private boolean running;
     private boolean biddingOpen;
@@ -27,6 +28,7 @@ public final class AuctionManager {
     private String highestCaptain;
     private TeamColor highestColor;
     private int highestBid;
+    private int acceptedBidCount;
     private BukkitTask timerTask;
     private BossBar bossBar;
     private long biddingEndsAt;
@@ -51,9 +53,19 @@ public final class AuctionManager {
     public boolean isPaused() { return paused; }
     public String currentPlayer() { return currentPlayer; }
 
+    public boolean isHeldAtAuctionSpot(String playerName) {
+        return (currentPlayer != null && currentPlayer.equalsIgnoreCase(playerName)
+                && plugin.store().soldTeam(playerName) == null)
+                || pendingLeftovers.stream().anyMatch(name -> name.equalsIgnoreCase(playerName));
+    }
+
     public Location currentPosition(String playerName) {
-        if (currentPlayer == null || !currentPlayer.equalsIgnoreCase(playerName)) return null;
-        return plugin.store().position(index + 1);
+        int playerIndex = -1;
+        for (int i = 0; i < lineup.size(); i++) {
+            if (lineup.get(i).equalsIgnoreCase(playerName)) { playerIndex = i; break; }
+        }
+        if (playerIndex < 0 || !isHeldAtAuctionSpot(playerName)) return null;
+        return plugin.store().position(playerIndex + 1);
     }
 
     public void start() {
@@ -72,6 +84,7 @@ public final class AuctionManager {
             }
         }
         running = true;
+        pendingLeftovers.clear();
         skipPreviouslySoldPlayers = false;
         plugin.store().setAuctionRunning(true);
         tier = Tier.A;
@@ -90,6 +103,7 @@ public final class AuctionManager {
         paused = false;
         currentPlayer = null;
         lineup.clear();
+        pendingLeftovers.clear();
         plugin.store().setAuctionRunning(false);
         if (bossBar != null) bossBar.removeAll();
         bossBar = null;
@@ -183,6 +197,7 @@ public final class AuctionManager {
             plugin.store().clearSoldTeam(name);
             plugin.store().clearPurchase(name);
         }
+        pendingLeftovers.removeIf(name -> plugin.store().tierOf(name) == restartTier);
 
         tier = restartTier;
         plugin.store().setAuctionTier(tier);
@@ -191,6 +206,7 @@ public final class AuctionManager {
         highestCaptain = null;
         highestColor = null;
         highestBid = 0;
+        acceptedBidCount = 0;
         running = true;
         skipPreviouslySoldPlayers = true;
         plugin.store().setAuctionRunning(true);
@@ -243,6 +259,7 @@ public final class AuctionManager {
         highestCaptain = null;
         highestColor = null;
         highestBid = 0;
+        acceptedBidCount = 0;
         Location position = plugin.store().position(index + 1);
         Player player = Bukkit.getPlayerExact(currentPlayer);
         if (player != null) {
@@ -261,7 +278,7 @@ public final class AuctionManager {
         if (!running || currentPlayer == null || biddingOpen) return;
         int generation = ++countdownGeneration;
         int countdown = Math.max(0, plugin.getConfig().getInt("countdown-seconds", 3));
-        int seconds = Math.max(1, plugin.getConfig().getInt("bidding-seconds", 30));
+        int seconds = Math.max(1, plugin.getConfig().getInt("bidding-seconds", 20));
         for (int i = countdown; i > 0; i--) {
             final int shown = i;
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
@@ -318,7 +335,11 @@ public final class AuctionManager {
         highestCaptain = bidder.getName();
         highestColor = color;
         highestBid = amount;
-        long extensionMillis = Math.max(0, plugin.getConfig().getInt("bid-extension-seconds", 10)) * 1000L;
+        int extensionSeconds = acceptedBidCount == 0
+                ? plugin.getConfig().getInt("first-bid-extension-seconds", 5)
+                : plugin.getConfig().getInt("bid-extension-seconds", 10);
+        acceptedBidCount++;
+        long extensionMillis = Math.max(0, extensionSeconds) * 1000L;
         biddingEndsAt += extensionMillis;
         biddingDurationMillis += extensionMillis;
         Bukkit.broadcast(Component.text("I bid " + amount + "!").color(plugin.adventureColor(color)));
@@ -348,7 +369,7 @@ public final class AuctionManager {
             if (player != null) plugin.refreshName(player);
             Bukkit.broadcast(Component.text("Sold to Mr " + highestCaptain + " — " + sold + " won by " + winner.name() + " Team for " + price)
                     .color(plugin.adventureColor(winner)));
-            Location target = plugin.store().teamPosition(winner);
+            Location target = teamArrival(winner, sold);
             if (player != null) {
                 plugin.npcs().remove(sold);
                 if (target != null) player.teleportAsync(target).thenAccept(success -> {
@@ -358,30 +379,16 @@ public final class AuctionManager {
                 plugin.npcs().move(sold, target);
             }
         } else {
-            TeamColor leftoverTeam = teamForLeftover(tier);
-            if (leftoverTeam == null) {
-                Bukkit.broadcast(Component.text(currentPlayer + " received no bids and remains unassigned."));
-            } else {
-                String unbidPlayer = currentPlayer;
-                plugin.store().setSoldTeam(unbidPlayer, leftoverTeam);
-                plugin.store().recordPurchase(unbidPlayer, tier, leftoverTeam, 0);
-                Player player = Bukkit.getPlayerExact(unbidPlayer);
-                if (player != null) plugin.refreshName(player);
-                Bukkit.broadcast(Component.text(unbidPlayer + " was assigned to the " + leftoverTeam.name() + " Team as a leftover.")
-                        .color(plugin.adventureColor(leftoverTeam)));
-                Location target = plugin.store().teamPosition(leftoverTeam);
-                if (player != null && target != null) {
-                    player.teleportAsync(target).thenAccept(success -> {
-                        if (success) Bukkit.getScheduler().runTask(plugin, () -> plugin.setMovementAnchor(player, target));
-                    });
-                } else if (target != null) plugin.npcs().move(unbidPlayer, target);
-            }
+            pendingLeftovers.add(currentPlayer);
+            Bukkit.broadcast(Component.text(currentPlayer + " received no bids and will stay at their auction position until "
+                    + tier.name() + "-Tier bidding is finished."));
         }
         index++;
         Bukkit.getScheduler().runTaskLater(plugin, this::prepareCurrentPlayer, 20L);
     }
 
     private void advanceTier() {
+        distributeLeftovers();
         int next = AUCTION_TIERS.indexOf(tier) + 1;
         if (next >= AUCTION_TIERS.size()) {
             running = false;
@@ -394,6 +401,44 @@ public final class AuctionManager {
         tier = AUCTION_TIERS.get(next);
         plugin.store().setAuctionTier(tier);
         beginTier();
+    }
+
+    private void distributeLeftovers() {
+        if (pendingLeftovers.isEmpty()) return;
+        List<String> unbid = new ArrayList<>(pendingLeftovers);
+        pendingLeftovers.clear();
+        for (String name : unbid) {
+            TeamColor team = teamForLeftover(tier);
+            if (team == null) {
+                Bukkit.broadcast(Component.text(name + " received no bids and remains unassigned."));
+                continue;
+            }
+            Location target = teamArrival(team, name);
+            plugin.store().setSoldTeam(name, team);
+            plugin.store().recordPurchase(name, tier, team, 0);
+            Player player = Bukkit.getPlayerExact(name);
+            if (player != null) {
+                plugin.refreshName(player);
+                if (target != null) player.teleportAsync(target).thenAccept(success -> {
+                    if (success) Bukkit.getScheduler().runTask(plugin, () -> plugin.setMovementAnchor(player, target));
+                });
+            } else if (target != null) plugin.npcs().move(name, target);
+            Bukkit.broadcast(Component.text(name + " was assigned to the " + team.name() + " Team as a leftover.")
+                    .color(plugin.adventureColor(team)));
+        }
+    }
+
+    private Location teamArrival(TeamColor team, String playerName) {
+        Location base = plugin.store().teamPosition(team);
+        if (base == null) return null;
+        int slot = 0;
+        for (String name : plugin.store().allNames()) {
+            if (name.equalsIgnoreCase(playerName)) continue;
+            if (plugin.store().soldTeam(name) == team) slot++;
+        }
+        if (slot == 0) return base;
+        double angle = (Math.PI * 2.0 * (slot - 1)) / 8.0;
+        return base.clone().add(Math.cos(angle) * 1.1, 0, Math.sin(angle) * 1.1);
     }
 
     private boolean teamAlreadyHasTier(TeamColor color, Tier requestedTier) {

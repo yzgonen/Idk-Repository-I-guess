@@ -11,8 +11,13 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /** Citizens-backed player NPCs, accessed reflectively so Citizens is not bundled into this jar. */
 public final class OfflineNpcService {
@@ -36,6 +41,7 @@ public final class OfflineNpcService {
         }
         if (existing != null) {
             setFormattedName(existing, playerName);
+            setSkin(existing, playerName);
             invoke(existing, "teleport", location, PlayerTeleportEvent.TeleportCause.PLUGIN);
             protect(existing);
             return true;
@@ -46,24 +52,7 @@ public final class OfflineNpcService {
             Method create = registry.getClass().getMethod("createNPC", EntityType.class, String.class);
             Object npc = create.invoke(registry, EntityType.PLAYER, playerName);
             setFormattedName(npc, playerName);
-
-            Class<?> skinTrait = Class.forName("net.citizensnpcs.trait.SkinTrait");
-            Object skin = npc.getClass().getMethod("getOrAddTrait", Class.class).invoke(npc, skinTrait);
-            Method skinSetter = null;
-            for (Method method : skinTrait.getMethods()) {
-                if (!method.getName().equals("setSkinName") || method.getParameterCount() < 1
-                        || method.getParameterTypes()[0] != String.class) continue;
-                if (method.getParameterCount() == 2 && method.getParameterTypes()[1] == boolean.class) {
-                    skinSetter = method;
-                    break;
-                }
-                if (skinSetter == null && method.getParameterCount() == 1) skinSetter = method;
-            }
-            if (skinSetter != null) {
-                if (skinSetter.getParameterCount() == 2) skinSetter.invoke(skin, playerName, true);
-                else skinSetter.invoke(skin, playerName);
-            }
-
+            setSkin(npc, playerName);
             protect(npc);
             Method spawn = npc.getClass().getMethod("spawn", Location.class);
             Object success = spawn.invoke(npc, location);
@@ -92,21 +81,43 @@ public final class OfflineNpcService {
         }
     }
 
+    public int removeAllStandIns() {
+        if (!available()) return 0;
+        Set<Integer> removedIds = new HashSet<>();
+        int removed = 0;
+        for (String playerName : plugin.store().allNames()) {
+            int id = plugin.store().npcId(playerName);
+            if (id >= 0) removedIds.add(id);
+            Object npc = npcs.remove(playerName.toLowerCase());
+            if (npc == null && id >= 0) npc = getById(id);
+            if (npc != null && deregister(npc)) removed++;
+            plugin.store().clearNpcId(playerName);
+        }
+
+        Object registry = getRegistry();
+        Object iteratorValue = invoke(registry, "iterator");
+        if (iteratorValue instanceof Iterator<?> iterator) {
+            List<Object> remaining = new ArrayList<>();
+            iterator.forEachRemaining(remaining::add);
+            for (Object npc : remaining) {
+                Object rawId = invoke(npc, "getId");
+                int id = rawId instanceof Number number ? number.intValue() : -1;
+                Object entity = invoke(npc, "getEntity");
+                String npcName = String.valueOf(invoke(npc, "getName"));
+                boolean rosterName = plugin.store().tierOf(npcName) != null;
+                if (removedIds.contains(id) || (entity instanceof Entity e && isMarkedStandIn(e)) || rosterName) {
+                    if (deregister(npc)) removed++;
+                }
+            }
+        }
+        npcs.clear();
+        return removed;
+    }
+
     public void remove(String playerName) {
         Object npc = npcs.remove(playerName.toLowerCase());
         if (npc == null && plugin.store().npcId(playerName) >= 0) npc = getById(plugin.store().npcId(playerName));
-        if (npc == null) return;
-        invoke(npc, "despawn");
-        try {
-            Object registry = Class.forName("net.citizensnpcs.api.CitizensAPI")
-                    .getMethod("getNPCRegistry").invoke(null);
-            for (Method method : registry.getClass().getMethods()) {
-                if (method.getName().equals("deregister") && method.getParameterCount() == 1) {
-                    method.invoke(registry, npc);
-                    break;
-                }
-            }
-        } catch (ReflectiveOperationException ignored) { }
+        if (npc != null) deregister(npc);
         plugin.store().clearNpcId(playerName);
     }
 
@@ -121,17 +132,67 @@ public final class OfflineNpcService {
         return false;
     }
 
+    private boolean isMarkedStandIn(Entity entity) {
+        NamespacedKey key = new NamespacedKey(plugin, "offline-player");
+        return entity.getPersistentDataContainer().has(key, PersistentDataType.STRING);
+    }
+
     private void protect(Object npc) {
-        invoke(npc, "setProtected", true);
+        invoke(npc, "setProtected", false);
         Object entity = invoke(npc, "getEntity");
         if (entity instanceof Entity bukkitEntity) {
-            bukkitEntity.setInvulnerable(true);
+            bukkitEntity.setInvulnerable(false);
             bukkitEntity.setSilent(true);
             bukkitEntity.setGlowing(false);
-            bukkitEntity.setCustomNameVisible(false);
+            bukkitEntity.setCustomNameVisible(true);
             NamespacedKey key = new NamespacedKey(plugin, "offline-player");
             bukkitEntity.getPersistentDataContainer().set(key, PersistentDataType.STRING, "true");
         }
+    }
+
+    private void setSkin(Object npc, String playerName) {
+        try {
+            Class<?> skinTrait = Class.forName("net.citizensnpcs.trait.SkinTrait");
+            Object skin = npc.getClass().getMethod("getOrAddTrait", Class.class).invoke(npc, skinTrait);
+            Method skinSetter = null;
+            for (Method method : skinTrait.getMethods()) {
+                if (!method.getName().equals("setSkinName") || method.getParameterCount() < 1
+                        || method.getParameterTypes()[0] != String.class) continue;
+                if (method.getParameterCount() == 2 && method.getParameterTypes()[1] == boolean.class) {
+                    skinSetter = method;
+                    break;
+                }
+                if (skinSetter == null && method.getParameterCount() == 1) skinSetter = method;
+            }
+            if (skinSetter != null) {
+                if (skinSetter.getParameterCount() == 2) skinSetter.invoke(skin, playerName, true);
+                else skinSetter.invoke(skin, playerName);
+            }
+        } catch (ReflectiveOperationException e) {
+            plugin.getLogger().warning("Could not refresh skin for " + playerName + ": " + e.getMessage());
+        }
+    }
+
+    private boolean deregister(Object npc) {
+        if (npc == null) return false;
+        invoke(npc, "despawn");
+        try {
+            Object registry = getRegistry();
+            for (Method method : registry.getClass().getMethods()) {
+                if (method.getName().equals("deregister") && method.getParameterCount() == 1) {
+                    method.invoke(registry, npc);
+                    return true;
+                }
+            }
+        } catch (ReflectiveOperationException ignored) { }
+        return false;
+    }
+
+    private Object getRegistry() {
+        try {
+            return Class.forName("net.citizensnpcs.api.CitizensAPI")
+                    .getMethod("getNPCRegistry").invoke(null);
+        } catch (ReflectiveOperationException ignored) { return null; }
     }
 
     private Object getById(int id) {
@@ -147,7 +208,7 @@ public final class OfflineNpcService {
         if (tier == null) return;
         TeamColor color = plugin.store().colorOf(playerName);
         ChatColor nameColor = color == null ? ChatColor.WHITE : color.chatColor();
-        invoke(npc, "setName", ChatColor.GRAY + tier.name() + " - " + nameColor + playerName);
+        invoke(npc, "setName", nameColor + "(" + tier.name() + ") " + playerName);
     }
 
     private Object invoke(Object target, String name, Object... args) {

@@ -30,6 +30,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerDropItemEvent;
@@ -38,11 +39,13 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.util.Vector;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.potion.PotionEffect;
@@ -270,7 +273,10 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (!admin(sender)) return true;
         if (args.length == 1 && args[0].equalsIgnoreCase("start")) auction.start();
         else if (args.length == 1 && args[0].equalsIgnoreCase("stop")) auction.stop();
-        else sender.sendMessage(ChatColor.RED + "Usage: /auction <start|stop>");
+        else if (args.length == 2 && args[0].equalsIgnoreCase("npcs") && args[1].equalsIgnoreCase("clear")) {
+            int removed = npcs.removeAllStandIns();
+            sender.sendMessage(ChatColor.GREEN + "Removed " + removed + " auction stand-in NPC(s). Roster entries were kept.");
+        } else sender.sendMessage(ChatColor.RED + "Usage: /auction <start|stop|npcs clear>");
         return true;
     }
 
@@ -418,8 +424,8 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         modeBeforePvpOff.put(id, original);
         effectsBeforePvpOff.putIfAbsent(id, loadEffectSnapshot(id));
         Tier tier = store.tierOf(player.getName());
-        // Spectator is the only vanilla mode that lets S-tier players and OPs pass through physical barriers.
-        player.setGameMode((tier == Tier.S || player.isOp()) ? GameMode.SPECTATOR : GameMode.ADVENTURE);
+        if (tier == Tier.S || player.isOp()) player.setGameMode(original);
+        else player.setGameMode(GameMode.ADVENTURE);
         player.addPotionEffect(new PotionEffect(PotionEffectType.INVISIBILITY, Integer.MAX_VALUE, 0, false, false, false));
         player.addPotionEffect(new PotionEffect(PotionEffectType.SATURATION, Integer.MAX_VALUE, 255, false, false, false));
         player.setInvulnerable(false);
@@ -583,13 +589,26 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onDamage(EntityDamageByEntityEvent event) {
-        if (store.isPvpOff()) {
-            Entity damager = event.getDamager();
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onDamage(EntityDamageEvent event) {
+        if (npcs.isStandIn(event.getEntity())) {
+            event.setCancelled(true);
+            if (event instanceof EntityDamageByEntityEvent byEntity) {
+                Entity source = byEntity.getDamager();
+                if (source instanceof Projectile projectile && projectile.getShooter() instanceof Entity shooter) source = shooter;
+                if (source instanceof Player attacker) {
+                    Vector push = event.getEntity().getLocation().toVector().subtract(attacker.getLocation().toVector());
+                    if (push.lengthSquared() < 0.0001) push = attacker.getLocation().getDirection().multiply(-1);
+                    push.normalize().multiply(0.45).setY(0.28);
+                    event.getEntity().setVelocity(push);
+                }
+            }
+            return;
+        }
+        if (store.isPvpOff() && event instanceof EntityDamageByEntityEvent byEntity) {
+            Entity damager = byEntity.getDamager();
             if (damager instanceof Player || (damager instanceof Projectile projectile && projectile.getShooter() instanceof Player)) event.setCancelled(true);
         }
-        if (npcs.isStandIn(event.getEntity())) event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -642,6 +661,18 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
     public void onMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         if (event.getTo() == null) return;
+        if (!(event instanceof PlayerTeleportEvent) && auction.isHeldAtAuctionSpot(player.getName())) {
+            Location from = event.getFrom();
+            Location to = event.getTo();
+            if (from.getWorld() == to.getWorld()
+                    && (Math.abs(from.getX() - to.getX()) > 0.0001 || Math.abs(from.getZ() - to.getZ()) > 0.0001)) {
+                Location locked = from.clone();
+                locked.setY(to.getY());
+                locked.setYaw(to.getYaw());
+                locked.setPitch(to.getPitch());
+                event.setTo(locked);
+            }
+        }
         if (store.isPvpOff() && store.tierOf(player.getName()) == Tier.S) {
             int chunkKey = (event.getTo().getBlockX() >> 4) * 31 + (event.getTo().getBlockZ() >> 4);
             Integer previous = lastBarrierScan.put(player.getUniqueId(), chunkKey);
@@ -693,7 +724,8 @@ public final class AuctionPlugin extends JavaPlugin implements Listener, Command
         if (cmd.equals("posteam") && args.length == 1) return Arrays.stream(TeamColor.values()).map(c -> c.name().toLowerCase()).filter(s -> s.startsWith(args[0].toLowerCase())).toList();
         if (cmd.equals("axs") && args.length == 1) return "set".startsWith(args[0].toLowerCase()) ? List.of("set") : List.of();
         if (cmd.equals("axs") && args.length == 2) return List.of("all", "S").stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
-        if (cmd.equals("auction") && args.length == 1) return List.of("start", "stop").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
+        if (cmd.equals("auction") && args.length == 1) return List.of("start", "stop", "npcs").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
+        if (cmd.equals("auction") && args.length == 2 && args[0].equalsIgnoreCase("npcs")) return "clear".startsWith(args[1].toLowerCase()) ? List.of("clear") : List.of();
         if (cmd.equals("bidding") && args.length == 1) return List.of("start", "pause", "stop", "restart").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();
         if (cmd.equals("bidding") && args.length == 2 && args[0].equalsIgnoreCase("restart")) return List.of("A", "B", "C", "D").stream().filter(s -> s.toLowerCase().startsWith(args[1].toLowerCase())).toList();
         if (cmd.equals("pvp") && args.length == 1) return List.of("on", "off").stream().filter(s -> s.startsWith(args[0].toLowerCase())).toList();

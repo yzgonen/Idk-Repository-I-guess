@@ -1,5 +1,6 @@
 starting-budget: 250
-bidding-seconds: 30
+bidding-seconds: 20
+first-bid-extension-seconds: 5
 bid-extension-seconds: 10
 countdown-seconds: 3
 pvp-off: false

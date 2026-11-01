@@ -18,18 +18,18 @@ Admin commands require `auction.admin` (OPs have it by default).
 3. Stand at each auction lineup spot and save it with `/pos add 1` through `/pos add 8`. `/pos delete <number>` removes a saved spot.
 4. Stand at each team destination and use `/posteam <color>`.
 5. Set join locations with `/axs set all` and `/axs set S`.
-6. Place the physical barrier blocks around the movement area. Non-S players are limited to a 3-block radius from their assigned/join position. S-tier players and OPs use spectator mode while `/pvp off` is active so they can pass through physical barriers; S-tier clients are sent air block updates for nearby barriers.
+6. Place the physical barrier blocks around the movement area. Non-S players are limited to a 3-block radius from their assigned/join position. `/pvp off` keeps S-tier players and OPs out of spectator mode and hides nearby barriers from S-tier clients. Paper still enforces server-side collision for those barriers.
 
 ## Auction flow
 
 - `/bidding start` starts at A-Tiers or resumes a paused bid. `/auction start` is an equivalent admin shortcut.
-- Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 30-second bidding window. Offline players appear as protected Citizens player NPCs using their account skin.
+- Each tier's roster is sorted by username A-Z. One player at a time is teleported to the matching saved `/pos` number, receives a three-second countdown, and has a 20-second bidding window. They can jump and look around but cannot walk from their podium. Offline players appear as protected Citizens player NPCs using their account skin.
 - Only S-tier captains can place bids. While bidding is open, a numeric chat message such as `30` becomes a team-colored `I bid 30!` announcement. A-D players' chat is suppressed during that window. Bids must be above the current bid and within that team's remaining 250 auction money. Outbid bids are not charged.
-- Each accepted higher bid adds 10 seconds to that player's bidding timer.
-- `/sell` closes the current player's auction early. Otherwise, the 30-second timer closes it automatically. The winner pays the winning amount, the player is assigned the team's color, and they are sent to that team's `/posteam` location.
+- The first accepted bid adds 5 seconds. Each later accepted higher bid adds 10 seconds to that player's timer.
+- `/sell` closes the current player's auction early. Otherwise, the 20-second timer closes it automatically. The winner pays the winning amount, the player is assigned the team's color, and they are sent to that team's `/posteam` location.
 - `/bidding pause` freezes the current bidding timer. `/bidding stop` ends the auction and keeps completed sales and balances.
 - `/bidding restart <A|B|C|D>` clears and reruns that tier. Winning prices recorded in `purchases.yml` are refunded to the teams that paid them. Later tiers' completed sales remain in place and are skipped as the auction continues. Sales from older plugin versions have no saved winning prices and cannot be refunded accurately.
-- A player with no bids is assigned to an eligible team with the most remaining budget. This keeps each team to one player per tier where possible.
+- A player with no bids stays at their podium while the rest of the tier is auctioned. When that tier finishes, unsold players are assigned to eligible teams with the most remaining budget. Team members are sent to spaced spots around the team's `/posteam` location to avoid stacking.
 - At the end of D-Tiers, the auction closes. Unused auction money has no season value.
 
 ## Commands
@@ -51,9 +51,10 @@ Admin commands require `auction.admin` (OPs have it by default).
 | `/bidding restart <A|B|C|D>` | Admin | Refunds recorded winning bids for the selected tier, clears its assignments, and auctions that tier again. |
 | `/sell` | Admin | Ends the current bidding window and sells the current player. |
 | `/auction stop` | Admin | Stops the auction. |
+| `/auction npcs clear` | Admin | Removes saved auction stand-in NPCs while keeping the roster. |
 | `/pvp off` / `/pvp on` | Admin | Applies/removes the server-wide protected mode. |
 
-`/pvp off` affects current players and future joiners. It disables player-versus-player damage, applies invisibility and Saturation 255, prevents block breaking/placing and block/entity/container interactions, and uses Adventure mode for non-S players. `/pvp on` restores saved game modes and removes those effects.
+`/pvp off` affects current players and future joiners. It disables player-versus-player damage, applies invisibility and Saturation 255, prevents block breaking/placing and block/entity/container interactions, and uses Adventure mode for non-S players. S-tier players and OPs keep their saved game mode (they are not put in spectator); nearby barriers are hidden from S-tier clients, but Paper still enforces server-side barrier collision. `/pvp on` restores saved game modes and removes those effects.
 
 ## Offline players
 
