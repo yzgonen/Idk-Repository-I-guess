@@ -7,6 +7,7 @@ import org.bukkit.Location;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -292,11 +293,13 @@ public final class AuctionManager {
         int seconds = Math.max(1, plugin.getConfig().getInt("bidding-seconds", 20));
         for (int i = countdown; i > 0; i--) {
             final int shown = i;
+            final float pitch = Math.min(2.0f, 0.8f + (countdown - i) * 0.2f);
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 if (generation != countdownGeneration || !running) return;
                 for (Player player : Bukkit.getOnlinePlayers()) {
                     player.showTitle(Title.title(Component.text(String.valueOf(shown)), Component.text("Get ready to bid"),
                             Title.Times.times(Duration.ZERO, Duration.ofMillis(700), Duration.ofMillis(100))));
+                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, pitch);
                 }
             }, (long) (countdown - i) * 20L);
         }
