@@ -14,7 +14,7 @@ partial class Dashboard {
  var health=new TabPage("HARDWARE & HISTORY"); tabs.TabPages.Add(health);var box=new FlowLayoutPanel(){Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,Padding=new Padding(20),AutoScroll=true};health.Controls.Add(box);box.Controls.Add(gpu);
  Add(box,"Read GPU and storage",async()=>await Hardware());
  Add(box,"Recent Windows errors",async()=>await Errors());
- Add(panel,"Enable gaming power plan",()=>PowerOn());Add(panel,"Restore previous power plan",()=>PowerOff());
+ Add(panel,"Optimize my PC (recommended)",()=>OptimizePC());Add(panel,"Undo BlockCare optimization",()=>UndoPC());
  Add(panel,"Start Defender quick scan",()=>Scan());
  Add(panel,"Launch BlockCare with Windows",()=>Startup(true));Add(panel,"Stop launching with Windows",()=>Startup(false));
  Add(panel,"Load Minecraft Java sounds",()=>FindSound());Add(panel,"Mute / unmute sounds",()=>{sound=!sound;MessageBox.Show(sound?"Sounds on":"Sounds off");});
@@ -39,5 +39,30 @@ partial class Dashboard {
  async void PowerOn(){try{var file=Path.Combine(data,"power-plan.txt");if(File.Exists(file)){MessageBox.Show("A previous plan is already saved. Restore it before applying again.");return;}var current=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(current,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");if(!match.Success){MessageBox.Show(current);return;}if(MessageBox.Show("Switch to High Performance? This can increase power use and heat. It does not guarantee more FPS.","Gaming power",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;File.WriteAllText(file,match.Value);var result=await Run("powercfg.exe","/setactive SCHEME_MIN");MessageBox.Show(string.IsNullOrWhiteSpace(result)?"Applied. Use Restore previous power plan to undo.":result);}catch(Exception ex){MessageBox.Show(ex.Message);}}
  async void PowerOff(){try{var file=Path.Combine(data,"power-plan.txt");if(!File.Exists(file)){MessageBox.Show("No saved plan to restore.");return;}var id=File.ReadAllText(file).Trim();if(!Guid.TryParse(id,out _))throw new Exception("Saved plan is invalid.");var r=await Run("powercfg.exe","/setactive "+id);if(string.IsNullOrWhiteSpace(r)){File.Delete(file);MessageBox.Show("Previous power plan restored.");}else MessageBox.Show(r);}catch(Exception ex){MessageBox.Show(ex.Message);}}
  void Scan(){var exe=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Windows Defender","MpCmdRun.exe");if(!File.Exists(exe)){Open("windowsdefender:");return;}Process.Start(new ProcessStartInfo(exe,"-Scan -ScanType 1"){UseShellExecute=true,Verb="runas"});}
+ sealed class SavedPlan { public string Power {get;set;}=""; public int? GameMode {get;set;} public int? GameModeAllowed {get;set;} public int? ChromeSaver {get;set;} }
+ int? ReadDword(string path,string name){using var k=Registry.CurrentUser.OpenSubKey(path);var v=k?.GetValue(name);return v==null?null:Convert.ToInt32(v);}
+ void WriteDword(string path,string name,int? value){using var k=Registry.CurrentUser.CreateSubKey(path,true);if(value.HasValue)k.SetValue(name,value.Value,RegistryValueKind.DWord);else k.DeleteValue(name,false);}
+ async void OptimizePC(){
+ try{
+ var file=Path.Combine(data,"optimization-backup.json");if(File.Exists(file)){MessageBox.Show("BlockCare already has a saved optimization. Use Undo before applying again.");return;}
+ var active=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(active,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");if(!match.Success){MessageBox.Show("Could not read your current power plan. No settings were changed.");return;}
+ const string game=@"Software\\Microsoft\\GameBar", chrome=@"Software\\Policies\\Google\\Chrome";
+ var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode"),ChromeSaver=ReadDword(chrome,"HighEfficiencyModeEnabled")};
+ Directory.CreateDirectory(data);File.WriteAllText(file,JsonSerializer.Serialize(backup));
+ WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);WriteDword(chrome,"HighEfficiencyModeEnabled",1);
+ var result=await Run("powercfg.exe","/setactive SCHEME_MIN");
+ if(!string.IsNullOrWhiteSpace(result)){await UndoPCAsync();MessageBox.Show("Windows could not apply the power plan. Previous settings were restored.\\n"+result);return;}
+ Open("https://support.google.com/chrome/answer/12929150");
+ MessageBox.Show("Optimization applied:\\n• Windows switched to High Performance.\\n• Windows Game Mode was enabled.\\n• Chrome Memory Saver was enabled by its supported Windows setting.\\n\\nRestart Chrome for its setting to take effect. Open chrome://settings/performance to review it.\\n\\nThis may increase heat and power use. Use Undo BlockCare optimization to restore your previous settings.","BlockCare optimization");
+ }catch(Exception ex){MessageBox.Show("Could not finish the optimization: "+ex.Message+"\\nUse Undo BlockCare optimization if a backup was saved.");}
+ }
+ async Task UndoPCAsync(){
+ var file=Path.Combine(data,"optimization-backup.json");if(!File.Exists(file))throw new Exception("No saved optimization to undo.");
+ var b=JsonSerializer.Deserialize<SavedPlan>(File.ReadAllText(file))??throw new Exception("Saved settings backup is unreadable.");
+ if(!Guid.TryParse(b.Power,out _))throw new Exception("Saved power plan is invalid.");
+ WriteDword(@"Software\\Microsoft\\GameBar","AutoGameModeEnabled",b.GameMode);WriteDword(@"Software\\Microsoft\\GameBar","AllowAutoGameMode",b.GameModeAllowed);WriteDword(@"Software\\Policies\\Google\\Chrome","HighEfficiencyModeEnabled",b.ChromeSaver);
+ var result=await Run("powercfg.exe","/setactive "+b.Power);if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);File.Delete(file);
+ }
+ async void UndoPC(){try{await UndoPCAsync();MessageBox.Show("Your saved Windows and Chrome settings were restored. Restart Chrome if it is open.");}catch(Exception ex){MessageBox.Show(ex.Message);}}
  async Task Signature(){using var p=Selected();if(p==null){MessageBox.Show("Select an app on Running Apps first.");return;}string path;try{path=p.MainModule!.FileName;}catch{MessageBox.Show("Windows restricts access to this process.");return;}var escaped=path.Replace("'","''");var text=await PS("Get-AuthenticodeSignature -LiteralPath '"+escaped+"' | Select Status,StatusMessage,@{N='Signer';E={$_.SignerCertificate.Subject}} | Format-List | Out-String");MessageBox.Show(text+"\nA valid signature verifies the signer, not that an app is necessary or harmless.","Signature verification");}
 }
