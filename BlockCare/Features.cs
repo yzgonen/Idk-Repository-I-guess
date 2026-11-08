@@ -14,7 +14,8 @@ partial class Dashboard {
  Add(panel,"Undo previous BlockCare changes",()=>UndoPC());
  Add(panel,"Open Chrome Performance settings",()=>OpenChromePerformance());
  Add(panel,"Check GPU and storage",async()=>await Hardware());
- Add(panel,"Show recent Windows errors",async()=>await Errors());\n Add(panel,"Open Device Manager for USB/audio",()=>Open("devmgmt.msc"));
+ Add(panel,"Show recent Windows errors",async()=>await Errors());
+ Add(panel,"Open Device Manager for USB/audio",()=>Open("devmgmt.msc"));
  Add(panel,"Run Ethernet test",async()=>await Network());
  Add(panel,"Open Windows Security",()=>Open("windowsdefender:"));
  Add(panel,"Review temporary files",()=>Open("ms-settings:storagesense"));
