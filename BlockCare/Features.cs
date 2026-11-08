@@ -47,21 +47,28 @@ partial class Dashboard {
  var file=Path.Combine(data,"optimization-backup.json");if(File.Exists(file)){MessageBox.Show("BlockCare already has a saved optimization. Use Undo before applying again.");return;}
  var active=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(active,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");if(!match.Success){MessageBox.Show("Could not read your current power plan. No settings were changed.");return;}
  const string game=@"Software\Microsoft\GameBar", chrome=@"Software\Policies\Google\Chrome";
- var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode"),ChromeSaver=ReadDword(chrome,"HighEfficiencyModeEnabled")};
+ var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode")};
  Directory.CreateDirectory(data);File.WriteAllText(file,JsonSerializer.Serialize(backup));
- WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);WriteDword(chrome,"HighEfficiencyModeEnabled",1);
+ WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);
  var result=await Run("powercfg.exe","/setactive SCHEME_MIN");
  if(!string.IsNullOrWhiteSpace(result)){await UndoPCAsync();MessageBox.Show("Windows could not apply the power plan. Previous settings were restored.\n"+result);return;}
- Open("https://support.google.com/chrome/answer/12929150");
+ OpenChromePerformance();
  MessageBox.Show("Optimization applied:\n• Windows switched to High Performance.\n• Windows Game Mode was enabled.\n• Chrome Memory Saver was enabled by its supported Windows setting.\n\nRestart Chrome for its setting to take effect. Open chrome://settings/performance to review it.\n\nThis may increase heat and power use. Use Undo BlockCare optimization to restore your previous settings.","BlockCare optimization");
  }catch(Exception ex){var backup=Path.Combine(data,"optimization-backup.json");if(File.Exists(backup)){try{await UndoPCAsync();}catch{}}MessageBox.Show("Could not finish the optimization: "+ex.Message+"\nAny saved settings were restored where possible.");}
+ }
+ void OpenChromePerformance(){
+ var paths=new[]{Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Google","Chrome","Application","chrome.exe"),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Google","Chrome","Application","chrome.exe"),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),"Google","Chrome","Application","chrome.exe")};
+ var exe=paths.FirstOrDefault(File.Exists);if(exe!=null)Process.Start(new ProcessStartInfo(exe,"--new-tab chrome://settings/performance"){UseShellExecute=true});else MessageBox.Show("Chrome was not found. Open Chrome and enter chrome://settings/performance to turn on Memory Saver.");
  }
  async Task UndoPCAsync(){
  var file=Path.Combine(data,"optimization-backup.json");if(!File.Exists(file))throw new Exception("No saved optimization to undo.");
  var b=JsonSerializer.Deserialize<SavedPlan>(File.ReadAllText(file))??throw new Exception("Saved settings backup is unreadable.");
  if(!Guid.TryParse(b.Power,out _))throw new Exception("Saved power plan is invalid.");
- WriteDword(@"Software\Microsoft\GameBar","AutoGameModeEnabled",b.GameMode);WriteDword(@"Software\Microsoft\GameBar","AllowAutoGameMode",b.GameModeAllowed);WriteDword(@"Software\Policies\Google\Chrome","HighEfficiencyModeEnabled",b.ChromeSaver);
- var result=await Run("powercfg.exe","/setactive "+b.Power);if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);File.Delete(file);
+ var problems=new List<string>();
+ try{WriteDword(@"Software\Microsoft\GameBar","AutoGameModeEnabled",b.GameMode);WriteDword(@"Software\Microsoft\GameBar","AllowAutoGameMode",b.GameModeAllowed);}catch(Exception ex){problems.Add("Game Mode: "+ex.Message);}
+ if(b.ChromeSaver.HasValue){try{WriteDword(@"Software\Policies\Google\Chrome","HighEfficiencyModeEnabled",b.ChromeSaver);}catch(Exception ex){problems.Add("Chrome policy: "+ex.Message);}}
+ var result=await Run("powercfg.exe","/setactive "+b.Power);if(!string.IsNullOrWhiteSpace(result))problems.Add("Power plan: "+result);
+ if(problems.Count==0)File.Delete(file);else throw new Exception("Some settings could not be restored:\n"+string.Join("\n",problems));
  }
  async void UndoPC(){try{await UndoPCAsync();MessageBox.Show("Your saved Windows and Chrome settings were restored. Restart Chrome if it is open.");}catch(Exception ex){MessageBox.Show(ex.Message);}}
  async Task Signature(){using var p=Selected();if(p==null){MessageBox.Show("Select an app on Running Apps first.");return;}string path;try{path=p.MainModule!.FileName;}catch{MessageBox.Show("Windows restricts access to this process.");return;}var escaped=path.Replace("'","''");var text=await PS("Get-AuthenticodeSignature -LiteralPath '"+escaped+"' | Select Status,StatusMessage,@{N='Signer';E={$_.SignerCertificate.Subject}} | Format-List | Out-String");MessageBox.Show(text+"\nA valid signature verifies the signer, not that an app is necessary or harmless.","Signature verification");}
