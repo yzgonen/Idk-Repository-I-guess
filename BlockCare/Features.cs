@@ -6,27 +6,54 @@ namespace BlockCare;
 partial class Dashboard {
  string data=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BlockCare");
  bool sound=true; string? clickFile; readonly NAudio.Wave.WaveOutEvent speaker=new(); NAudio.Wave.WaveStream? audio;
+ CheckBox? focusEnabled, focusChrome, focusDiscord, focusWhatsApp;
+ readonly Dictionary<int,ProcessPriorityClass> savedPriorities=new();
  Label gpu=new(){AutoSize=true,MaximumSize=new Size(950,0)};
  static Icon BlockIcon(){using var b=new Bitmap(32,32);using(var g=Graphics.FromImage(b)){g.Clear(Color.Transparent);g.FillRectangle(Brushes.SaddleBrown,4,12,24,16);g.FillRectangle(Brushes.ForestGreen,4,4,24,10);g.FillRectangle(Brushes.LightGreen,4,4,8,4);g.FillRectangle(Brushes.Peru,8,18,4,4);g.FillRectangle(Brushes.Peru,20,24,4,4);}var h=b.GetHicon();try{return (Icon)Icon.FromHandle(h).Clone();}finally{DestroyIcon(h);}}
  [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
  void InstallFeatures(FlowLayoutPanel panel){
- var intro=new Label(){Text="Safe tools and restore options",AutoSize=true,ForeColor=Color.FromArgb(153,178,211),Margin=new Padding(4,0,0,12)};panel.Controls.Add(intro);panel.Controls.Add(gpu);
- Add(panel,"Undo previous BlockCare changes",()=>UndoPC());
- Add(panel,"Open Chrome Performance settings",()=>OpenChromePerformance());
+ var intro=new Label(){Text="A few safe controls. Every Windows change has an undo option.",AutoSize=true,ForeColor=Color.FromArgb(153,178,211),Margin=new Padding(4,0,0,12)};panel.Controls.Add(intro);
+ var focusBox=new Panel(){Width=900,Height=114,BackColor=Color.FromArgb(15,25,43),Margin=new Padding(4,4,4,14),Padding=new Padding(14)};
+ focusEnabled=new CheckBox(){Text="Game Focus: lower selected apps' CPU priority while a game is open",AutoSize=true,ForeColor=Color.White,Font=new Font("Segoe UI Semibold",10),Location=new Point(12,10)};
+ focusChrome=new CheckBox(){Text="Chrome",Checked=true,AutoSize=true,ForeColor=Color.FromArgb(183,202,228),Location=new Point(14,50)};
+ focusDiscord=new CheckBox(){Text="Discord",Checked=true,AutoSize=true,ForeColor=Color.FromArgb(183,202,228),Location=new Point(130,50)};
+ focusWhatsApp=new CheckBox(){Text="WhatsApp",Checked=true,AutoSize=true,ForeColor=Color.FromArgb(183,202,228),Location=new Point(250,50)};
+ var focusNote=new Label(){Text="Only active during Fortnite, Rocket League, or Minecraft; normal priority is restored when the game closes. Priority affects CPU scheduling, not RAM.",AutoSize=true,MaximumSize=new Size(840,0),ForeColor=Color.FromArgb(140,163,194),Location=new Point(14,78),Font=new Font("Segoe UI",8)};
+ focusBox.Controls.AddRange(new Control[]{focusEnabled,focusChrome,focusDiscord,focusWhatsApp,focusNote});panel.Controls.Add(focusBox);
+ panel.Controls.Add(gpu);
+ Add(panel,"Undo previous BlockCare tune-up",()=>UndoPC());
  Add(panel,"Check GPU and storage",async()=>await Hardware());
- Add(panel,"Show recent Windows errors",async()=>await Errors());
- Add(panel,"Open Device Manager for USB/audio",()=>Open("devmgmt.msc"));
- Add(panel,"Run Ethernet test",async()=>await Network());
- Add(panel,"Open Windows Security",()=>Open("windowsdefender:"));
- Add(panel,"Review temporary files",()=>Open("ms-settings:storagesense"));
+ Add(panel,"Chrome performance settings",()=>OpenChromePerformance());
  Add(panel,"Review startup apps",()=>Open("ms-settings:startupapps"));
- Add(panel,"Start Defender quick scan",()=>Scan());
- Add(panel,"Start BlockCare with Windows",()=>Startup(true));
- Add(panel,"Stop BlockCare starting with Windows",()=>Startup(false));
- Add(panel,"Reload Minecraft Java sounds",()=>FindSound());
- Add(panel,"Mute / unmute sounds",()=>{sound=!sound;MessageBox.Show(sound?"Sounds on":"Sounds off");});
- Add(panel,"Verify selected app signature",async()=>await Signature());
- panel.AutoScroll=true;FindSound(false);FormClosed+=(_,_)=>{speaker.Dispose();audio?.Dispose();};
+ Add(panel,"Review temporary files",()=>Open("ms-settings:storagesense"));
+ Add(panel,"Windows Security / virus scan",()=>Open("windowsdefender:"));
+ Add(panel,"Show recent Windows errors",async()=>await Errors());
+ panel.AutoScroll=true;FormClosed+=(_,_)=>{RestorePriorities();speaker.Dispose();audio?.Dispose();};
+ }
+ void UpdateGameFocus(){
+ bool active=Process.GetProcesses().Any(p=>{using(p){try{return new[]{"FortniteClient-Win64-Shipping","RocketLeague","javaw","java"}.Contains(p.ProcessName,StringComparer.OrdinalIgnoreCase);}catch{return false;}}});
+ bool enabled=focusEnabled?.Checked==true&&active;
+ foreach(var pair in savedPriorities.ToArray()){
+  bool keep=false;
+  if(enabled){try{using var old=Process.GetProcessById(pair.Key);keep=IsSelectedTarget(old.ProcessName);}catch{}}
+  if(!keep){try{using var old=Process.GetProcessById(pair.Key);old.PriorityClass=pair.Value;}catch{}savedPriorities.Remove(pair.Key);}
+ }
+ if(!enabled)return;
+ foreach(var p in Process.GetProcesses())using(p){try{
+  if(!IsSelectedTarget(p.ProcessName)||savedPriorities.ContainsKey(p.Id))continue;
+  var current=p.PriorityClass;savedPriorities[p.Id]=current;
+  if(current==ProcessPriorityClass.Normal||current==ProcessPriorityClass.AboveNormal||current==ProcessPriorityClass.High||current==ProcessPriorityClass.RealTime)p.PriorityClass=ProcessPriorityClass.BelowNormal;
+ }catch{}}
+ }
+ bool IsSelectedTarget(string name){
+  if(name.Equals("chrome",StringComparison.OrdinalIgnoreCase))return focusChrome?.Checked==true;
+  if(name.Equals("discord",StringComparison.OrdinalIgnoreCase))return focusDiscord?.Checked==true;
+  if(name.Equals("WhatsApp",StringComparison.OrdinalIgnoreCase)||name.Equals("WhatsApp.Root",StringComparison.OrdinalIgnoreCase))return focusWhatsApp?.Checked==true;
+  return false;
+ }
+ void RestorePriorities(){
+  foreach(var pair in savedPriorities.ToArray()){try{using var p=Process.GetProcessById(pair.Key);p.PriorityClass=pair.Value;}catch{}}
+  savedPriorities.Clear();
  }
  void PlayClick(){if(!sound||clickFile==null)return;try{speaker.Stop();audio?.Dispose();audio=new NAudio.Vorbis.VorbisWaveReader(clickFile);speaker.Init(audio);speaker.Volume=.3f;speaker.Play();}catch{}}
  void FindSound(bool notify=true){
@@ -93,7 +120,7 @@ partial class Dashboard {
  if(Convert.ToString(gameChoice.SelectedItem)=="Fortnite")detail=await InspectFortnite();
  else if(Convert.ToString(gameChoice.SelectedItem)=="Rocket League")detail="Rocket League settings were left intact. Check its FPS cap and effects in game; see Live Monitor while it runs.";
  else detail="Minecraft settings were left intact. If CPU spikes, lower render and simulation distance; see Live Monitor while it runs.";
- optimizeResult.Text=profile+"\n\n"+detail+"\n\nThis cannot guarantee a fixed FPS. Your GTX 1060 / i5-8400 cannot hold 1,000 FPS in current Fortnite.";
+ optimizeResult.Text=profile+"\n\n"+detail+"\n\nFPS depends on game settings, temperatures, drivers, and the scene. The check above reports the settings BlockCare can safely read.";
  }
  async Task<string> InspectFortnite(){
  var file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FortniteGame","Saved","Config","WindowsClient","GameUserSettings.ini");
