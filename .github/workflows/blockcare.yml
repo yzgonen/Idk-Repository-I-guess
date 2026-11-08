@@ -4,7 +4,7 @@ on:
     paths: ['BlockCare/**', '.github/workflows/blockcare.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -18,3 +18,12 @@ jobs:
         with:
           name: BlockCare-Windows
           path: output/BlockCare.exe
+      - name: Publish direct EXE download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: blockcare-latest
+          name: BlockCare latest build
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          files: output/BlockCare.exe
