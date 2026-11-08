@@ -1,0 +1,20 @@
+name: BlockCare Windows
+on:
+  push:
+    paths: ['BlockCare/**', '.github/workflows/blockcare.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet publish BlockCare/BlockCare.csproj -c Release -o output
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BlockCare-Windows
+          path: output/BlockCare.exe
