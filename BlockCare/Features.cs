@@ -97,15 +97,15 @@ partial class Dashboard {
  async Task<string> InspectFortnite(){
  var file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FortniteGame","Saved","Config","WindowsClient","GameUserSettings.ini");
  if(!File.Exists(file))return "Fortnite settings file not found. Launch Fortnite once, then run this check again.";
- try{var text=await File.ReadAllTextAsync(file);var cap=System.Text.RegularExpressions.Regex.Match(text,@"(?im)^\\s*FrameRateLimit\\s*=\\s*([0-9.]+)");var vs=System.Text.RegularExpressions.Regex.Match(text,@"(?im)^\\s*bUseVSync\\s*=\\s*(True|False)");
+ try{var text=await File.ReadAllTextAsync(file);var cap=System.Text.RegularExpressions.Regex.Match(text,@"(?im)^\s*FrameRateLimit\s*=\s*([0-9.]+)");var vs=System.Text.RegularExpressions.Regex.Match(text,@"(?im)^\s*bUseVSync\s*=\s*(True|False)");
  string capText=cap.Success?cap.Groups[1].Value:"not detected";string vsText=vs.Success?vs.Groups[1].Value:"not detected";
  return "Fortnite config check: frame limit "+capText+" FPS; V-Sync "+vsText+". If it reads 144, the config is capping at 144; check Fortnite's in-game Video settings too. This reads settings and doesn't alter them.";
  }catch(Exception ex){return "Couldn't read Fortnite settings: "+ex.Message;}
  }
  async Task OptimizeLatency(){
- optimizeResult.Text="Applying Windows Game Mode and checking your wired connection…";var profile=await ApplyGamingProfile();optimizeResult.Text=profile+"\\n\\nPing check starting.";
+ optimizeResult.Text="Applying Windows Game Mode and checking your wired connection…";var profile=await ApplyGamingProfile();optimizeResult.Text=profile+"\n\nPing check starting.";
  await Network();
- optimizeResult.Text=profile+"\\n\\nCheck the Ethernet results. This test can't change your ISP route or guarantee lower game ping.";
+ optimizeResult.Text=profile+"\n\nCheck the Ethernet results. This test can't change your ISP route or guarantee lower game ping.";
  }
  async Task Signature(){using var p=Selected();if(p==null){MessageBox.Show("Select an app on Running Apps first.");return;}string path;try{path=p.MainModule!.FileName;}catch{MessageBox.Show("Windows restricts access to this process.");return;}var escaped=path.Replace("'","''");var text=await PS("Get-AuthenticodeSignature -LiteralPath '"+escaped+"' | Select Status,StatusMessage,@{N='Signer';E={$_.SignerCertificate.Subject}} | Format-List | Out-String");MessageBox.Show(text+"\nA valid signature verifies the signer, not that an app is necessary or harmless.","Signature verification");}
 }
