@@ -9,19 +9,23 @@ partial class Dashboard {
  Label gpu=new(){AutoSize=true,MaximumSize=new Size(950,0)};
  static Icon BlockIcon(){using var b=new Bitmap(32,32);using(var g=Graphics.FromImage(b)){g.Clear(Color.Transparent);g.FillRectangle(Brushes.SaddleBrown,4,12,24,16);g.FillRectangle(Brushes.ForestGreen,4,4,24,10);g.FillRectangle(Brushes.LightGreen,4,4,8,4);g.FillRectangle(Brushes.Peru,8,18,4,4);g.FillRectangle(Brushes.Peru,20,24,4,4);}var h=b.GetHicon();try{return (Icon)Icon.FromHandle(h).Clone();}finally{DestroyIcon(h);}}
  [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
- void InstallFeatures(TabControl tabs,FlowLayoutPanel panel){
- Directory.CreateDirectory(data);
- var health=new TabPage("HARDWARE & HISTORY"); tabs.TabPages.Add(health);var box=new FlowLayoutPanel(){Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,Padding=new Padding(20),AutoScroll=true};health.Controls.Add(box);box.Controls.Add(gpu);
- Add(box,"Read GPU and storage",async()=>await Hardware());
- Add(box,"Recent Windows errors",async()=>await Errors());
- Add(panel,"Optimize my PC (recommended)",()=>OptimizePC());Add(panel,"Undo BlockCare optimization",()=>UndoPC());
+ void InstallFeatures(FlowLayoutPanel panel){
+ var intro=new Label(){Text="Safe tools and restore options",AutoSize=true,ForeColor=Color.FromArgb(153,178,211),Margin=new Padding(4,0,0,12)};panel.Controls.Add(intro);
+ Add(panel,"Undo previous BlockCare changes",()=>UndoPC());
+ Add(panel,"Open Chrome Performance settings",()=>OpenChromePerformance());
+ Add(panel,"Check GPU and storage",async()=>await Hardware());
+ Add(panel,"Show recent Windows errors",async()=>await Errors());
+ Add(panel,"Run Ethernet test",async()=>await Network());
+ Add(panel,"Open Windows Security",()=>Open("windowsdefender:"));
+ Add(panel,"Review temporary files",()=>Open("ms-settings:storagesense"));
+ Add(panel,"Review startup apps",()=>Open("ms-settings:startupapps"));
  Add(panel,"Start Defender quick scan",()=>Scan());
- Add(panel,"Launch BlockCare with Windows",()=>Startup(true));Add(panel,"Stop launching with Windows",()=>Startup(false));
- Add(panel,"Load Minecraft Java sounds",()=>FindSound());Add(panel,"Mute / unmute sounds",()=>{sound=!sound;MessageBox.Show(sound?"Sounds on":"Sounds off");});
+ Add(panel,"Start BlockCare with Windows",()=>Startup(true));
+ Add(panel,"Stop BlockCare starting with Windows",()=>Startup(false));
+ Add(panel,"Reload Minecraft Java sounds",()=>FindSound());
+ Add(panel,"Mute / unmute sounds",()=>{sound=!sound;MessageBox.Show(sound?"Sounds on":"Sounds off");});
  Add(panel,"Verify selected app signature",async()=>await Signature());
- panel.AutoScroll=true;
- FindSound(false);
- FormClosed+=(_,_)=>{speaker.Dispose();audio?.Dispose();};
+ panel.AutoScroll=true;FindSound(false);FormClosed+=(_,_)=>{speaker.Dispose();audio?.Dispose();};
  }
  void PlayClick(){if(!sound||clickFile==null)return;try{speaker.Stop();audio?.Dispose();audio=new NAudio.Vorbis.VorbisWaveReader(clickFile);speaker.Init(audio);speaker.Volume=.3f;speaker.Play();}catch{}}
  void FindSound(bool notify=true){
@@ -71,5 +75,37 @@ partial class Dashboard {
  if(problems.Count==0)File.Delete(file);else throw new Exception("Some settings could not be restored:\n"+string.Join("\n",problems));
  }
  async void UndoPC(){try{await UndoPCAsync();MessageBox.Show("Your saved Windows and Chrome settings were restored. Restart Chrome if it is open.");}catch(Exception ex){MessageBox.Show(ex.Message);}}
+ async Task<string> ApplyGamingProfile(){
+ var file=Path.Combine(data,"optimization-backup.json");
+ if(File.Exists(file))return "Your reversible gaming profile is already active.";
+ var active=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(active,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");
+ if(!match.Success)return "Couldn't read your current power plan, so no changes were made.";
+ const string game=@"Software\Microsoft\GameBar";
+ var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode")};
+ Directory.CreateDirectory(data);File.WriteAllText(file,JsonSerializer.Serialize(backup));
+ try{WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);var result=await Run("powercfg.exe","/setactive SCHEME_MIN");if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);return "Windows Game Mode and High Performance power plan enabled. Use Settings → Undo to restore.";}
+ catch(Exception ex){try{await UndoPCAsync();}catch{}return "Windows couldn't apply the gaming profile: "+ex.Message;}
+ }
+ async Task OptimizeFPS(){
+ optimizeResult.Text="Applying safe Windows gaming settings and checking "+gameChoice.SelectedItem+"…";
+ var profile=await ApplyGamingProfile();string detail;
+ if(Convert.ToString(gameChoice.SelectedItem)=="Fortnite")detail=await InspectFortnite();
+ else if(Convert.ToString(gameChoice.SelectedItem)=="Rocket League")detail="Rocket League settings were left intact. Check its FPS cap and effects in game; see Live Monitor while it runs.";
+ else detail="Minecraft settings were left intact. If CPU spikes, lower render and simulation distance; see Live Monitor while it runs.";
+ optimizeResult.Text=profile+"\n\n"+detail+"\n\nThis cannot guarantee a fixed FPS. Your GTX 1060 / i5-8400 cannot hold 1,000 FPS in current Fortnite.";
+ }
+ async Task<string> InspectFortnite(){
+ var file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FortniteGame","Saved","Config","WindowsClient","GameUserSettings.ini");
+ if(!File.Exists(file))return "Fortnite settings file not found. Launch Fortnite once, then run this check again.";
+ try{var text=await File.ReadAllTextAsync(file);var cap=System.Text.RegularExpressions.Regex.Match(text,@"(?im)^\\s*FrameRateLimit\\s*=\\s*([0-9.]+)");var vs=System.Text.RegularExpressions.Regex.Match(text,@"(?im)^\\s*bUseVSync\\s*=\\s*(True|False)");
+ string capText=cap.Success?cap.Groups[1].Value:"not detected";string vsText=vs.Success?vs.Groups[1].Value:"not detected";
+ return "Fortnite config check: frame limit "+capText+" FPS; V-Sync "+vsText+". If it reads 144, the config is capping at 144; check Fortnite's in-game Video settings too. This reads settings and doesn't alter them.";
+ }catch(Exception ex){return "Couldn't read Fortnite settings: "+ex.Message;}
+ }
+ async Task OptimizeLatency(){
+ optimizeResult.Text="Applying Windows Game Mode and checking your wired connection…";var profile=await ApplyGamingProfile();optimizeResult.Text=profile+"\\n\\nPing check starting.";
+ await Network();
+ optimizeResult.Text=profile+"\\n\\nCheck the Ethernet results. This test can't change your ISP route or guarantee lower game ping.";
+ }
  async Task Signature(){using var p=Selected();if(p==null){MessageBox.Show("Select an app on Running Apps first.");return;}string path;try{path=p.MainModule!.FileName;}catch{MessageBox.Show("Windows restricts access to this process.");return;}var escaped=path.Replace("'","''");var text=await PS("Get-AuthenticodeSignature -LiteralPath '"+escaped+"' | Select Status,StatusMessage,@{N='Signer';E={$_.SignerCertificate.Subject}} | Format-List | Out-String");MessageBox.Show(text+"\nA valid signature verifies the signer, not that an app is necessary or harmless.","Signature verification");}
 }
