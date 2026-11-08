@@ -10,11 +10,11 @@ partial class Dashboard {
  static Icon BlockIcon(){using var b=new Bitmap(32,32);using(var g=Graphics.FromImage(b)){g.Clear(Color.Transparent);g.FillRectangle(Brushes.SaddleBrown,4,12,24,16);g.FillRectangle(Brushes.ForestGreen,4,4,24,10);g.FillRectangle(Brushes.LightGreen,4,4,8,4);g.FillRectangle(Brushes.Peru,8,18,4,4);g.FillRectangle(Brushes.Peru,20,24,4,4);}var h=b.GetHicon();try{return (Icon)Icon.FromHandle(h).Clone();}finally{DestroyIcon(h);}}
  [DllImport("user32.dll")] static extern bool DestroyIcon(IntPtr h);
  void InstallFeatures(FlowLayoutPanel panel){
- var intro=new Label(){Text="Safe tools and restore options",AutoSize=true,ForeColor=Color.FromArgb(153,178,211),Margin=new Padding(4,0,0,12)};panel.Controls.Add(intro);
+ var intro=new Label(){Text="Safe tools and restore options",AutoSize=true,ForeColor=Color.FromArgb(153,178,211),Margin=new Padding(4,0,0,12)};panel.Controls.Add(intro);panel.Controls.Add(gpu);
  Add(panel,"Undo previous BlockCare changes",()=>UndoPC());
  Add(panel,"Open Chrome Performance settings",()=>OpenChromePerformance());
  Add(panel,"Check GPU and storage",async()=>await Hardware());
- Add(panel,"Show recent Windows errors",async()=>await Errors());
+ Add(panel,"Show recent Windows errors",async()=>await Errors());\n Add(panel,"Open Device Manager for USB/audio",()=>Open("devmgmt.msc"));
  Add(panel,"Run Ethernet test",async()=>await Network());
  Add(panel,"Open Windows Security",()=>Open("windowsdefender:"));
  Add(panel,"Review temporary files",()=>Open("ms-settings:storagesense"));
@@ -83,7 +83,7 @@ partial class Dashboard {
  const string game=@"Software\Microsoft\GameBar";
  var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode")};
  Directory.CreateDirectory(data);File.WriteAllText(file,JsonSerializer.Serialize(backup));
- try{WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);var result=await Run("powercfg.exe","/setactive SCHEME_MIN");if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);return "Windows Game Mode and High Performance power plan enabled. Use Settings → Undo to restore.";}
+ try{WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);var result=await Run("powercfg.exe","/setactive SCHEME_MIN");if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);return "Windows Game Mode and High Performance power plan enabled. This may increase heat and power use. Use Settings → Undo to restore.";}
  catch(Exception ex){try{await UndoPCAsync();}catch{}return "Windows couldn't apply the gaming profile: "+ex.Message;}
  }
  async Task OptimizeFPS(){
