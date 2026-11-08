@@ -10,7 +10,8 @@ static class Program {
 partial class Dashboard:Form {
  NotifyIcon tray=new(); System.Windows.Forms.Timer timer=new(){Interval=3000};
  DataGridView grid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,MultiSelect=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill};
- Label status=new(){Dock=DockStyle.Top,Height=65,Padding=new Padding(16),ForeColor=Color.LightGreen};\n ComboBox gameChoice=null!; Label optimizeResult=null!;
+ Label status=new(){Dock=DockStyle.Top,Height=65,Padding=new Padding(16),ForeColor=Color.LightGreen};
+ ComboBox gameChoice=null!; Label optimizeResult=null!;
  Dictionary<int,(double cpu,DateTime at)> previous=new(); bool quitting,busy;
  public Dashboard(){
  Text="BlockCare";Size=new Size(1180,780);MinimumSize=new Size(960,650);BackColor=Color.FromArgb(7,12,24);ForeColor=Color.White;Font=new Font("Segoe UI",10);
@@ -20,7 +21,7 @@ partial class Dashboard:Form {
  nav.Controls.Add(new Label(){Text="PC PERFORMANCE",AutoSize=true,ForeColor=Color.FromArgb(134,153,184),Font=new Font("Segoe UI",8),Margin=new Padding(9,0,8,24)});
  var body=new Panel(){Dock=DockStyle.Fill,BackColor=BackColor};shell.Controls.Add(body,1,0);
  status.Text="READY  •  monitoring refreshes every 3 seconds";status.Dock=DockStyle.Top;status.Height=45;status.Padding=new Padding(20,13,0,0);status.ForeColor=Color.FromArgb(115,202,255);body.Controls.Add(status);
- var tabs=new TabControl(){Dock=DockStyle.Fill,Appearance=TabAppearance.FlatButtons,SizeMode=TabSizeMode.Fixed,ItemSize=new Size(0,1)};body.Controls.Add(tabs);tabs.BringToFront();
+ var tabs=new TabControl(){Dock=DockStyle.Fill,Appearance=TabAppearance.FlatButtons,SizeMode=TabSizeMode.Fixed,ItemSize=new Size(0,1)};body.Controls.Add(tabs);tabs.BringToFront();status.BringToFront();
  var home=new TabPage("OPTIMIZE"){BackColor=BackColor};var monitor=new TabPage("MONITOR"){BackColor=BackColor};var settings=new TabPage("SETTINGS"){BackColor=BackColor};tabs.TabPages.Add(home);tabs.TabPages.Add(monitor);tabs.TabPages.Add(settings);
  var links=new[]{"OPTIMIZE","MONITOR","SETTINGS"};var navButtons=new List<Button>();
  for(int i=0;i<links.Length;i++){int index=i;var b=new Button(){Text=links[i],Width=176,Height=44,TextAlign=ContentAlignment.MiddleLeft,FlatStyle=FlatStyle.Flat,BackColor=i==0?Color.FromArgb(20,78,120):Color.FromArgb(15,26,45),ForeColor=Color.White,Padding=new Padding(12,0,0,0),Margin=new Padding(2,4,2,4),Font=new Font("Segoe UI Semibold",9)};b.FlatAppearance.BorderSize=0;b.Click+=(_,_)=>{tabs.SelectedIndex=index;for(int n=0;n<navButtons.Count;n++)navButtons[n].BackColor=n==index?Color.FromArgb(20,78,120):Color.FromArgb(15,26,45);};navButtons.Add(b);nav.Controls.Add(b);}
@@ -43,7 +44,7 @@ partial class Dashboard:Form {
  FormClosing+=(_,e)=>{if(!quitting){e.Cancel=true;Hide();}else{timer.Stop();tray.Dispose();}};Shown+=(_,_)=>Hide();timer.Tick+=async(_,_)=>await RefreshApps();timer.Start();FindSound(false);
  }
  Panel MakeCard(string title,string description,Color accent,string icon){var p=new Panel(){Dock=DockStyle.Fill,BackColor=Color.FromArgb(15,25,43),Margin=new Padding(8),BorderStyle=BorderStyle.FixedSingle};p.Controls.Add(new Panel(){Dock=DockStyle.Top,Height=5,BackColor=accent});p.Controls.Add(new Label(){Text=icon,Location=new Point(20,22),Size=new Size(44,44),ForeColor=accent,Font=new Font("Segoe UI Symbol",27)});p.Controls.Add(new Label(){Text=title,Location=new Point(76,28),AutoSize=true,ForeColor=Color.White,Font=new Font("Segoe UI Semibold",13)});p.Controls.Add(new Label(){Text=description,Location=new Point(20,91),MaximumSize=new Size(385,65),AutoSize=true,ForeColor=Color.FromArgb(169,187,213),Font=new Font("Segoe UI",9)});return p;}
- void Add(Control parent,string text,Action action){var b=new Button(){Text=text,AutoSize=true,Height=40,BackColor=Color.FromArgb(75,103,50),ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Margin=new Padding(6)}; b.Click+=(_,_)=>{try{PlayClick();action();}catch(Exception ex){MessageBox.Show(ex.Message,"BlockCare");}};parent.Controls.Add(b);}
+ void Add(Control parent,string text,Action action){var b=new Button(){Text=text,AutoSize=true,Height=40,BackColor=Color.FromArgb(27,105,185),ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Margin=new Padding(6),Font=new Font("Segoe UI",9)}; b.FlatAppearance.BorderSize=0;b.Click+=(_,_)=>{try{PlayClick();action();}catch(Exception ex){MessageBox.Show(ex.Message,"BlockCare");}};parent.Controls.Add(b);}
  void ShowDashboard(){Show();WindowState=FormWindowState.Normal;Activate();}
  static void Open(string file)=>Process.Start(new ProcessStartInfo(file){UseShellExecute=true});
  async Task RefreshApps(){
