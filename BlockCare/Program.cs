@@ -13,8 +13,16 @@ partial class Dashboard:Form {
  Label status=new(){Dock=DockStyle.Top,Height=65,Padding=new Padding(16),ForeColor=Color.LightGreen};
  Dictionary<int,(double cpu,DateTime at)> previous=new(); bool quitting,busy;
  public Dashboard(){
- Text="BlockCare • PC workshop"; Size=new Size(1100,720); BackColor=Color.FromArgb(28,32,27); ForeColor=Color.White; Font=new Font("Consolas",11);
- var tabs=new TabControl(){Dock=DockStyle.Fill}; Controls.Add(tabs); Controls.Add(status);
+ Text="BlockCare • PC workshop"; Size=new Size(1100,720); BackColor=Color.FromArgb(28,32,27); ForeColor=Color.White; Font=new Font("Segoe UI",10);
+ var shell=new TableLayoutPanel(){Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,BackColor=BackColor}; shell.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,220)); shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); Controls.Add(shell);
+ var nav=new FlowLayoutPanel(){Dock=DockStyle.Fill,FlowDirection=FlowDirection.TopDown,WrapContents=false,BackColor=Color.FromArgb(20,24,20),Padding=new Padding(12),AutoScroll=true}; shell.Controls.Add(nav,0,0);
+ nav.Controls.Add(new Label(){Text="▣ BLOCKCARE\\nPC WORKSHOP",AutoSize=true,ForeColor=Color.LightGreen,Font=new Font("Segoe UI Semibold",15),Margin=new Padding(6,10,6,24)});
+ nav.Controls.Add(new Label(){Text="Choose a page",AutoSize=true,ForeColor=Color.Silver,Margin=new Padding(6,0,6,8)});
+ var content=new Panel(){Dock=DockStyle.Fill}; shell.Controls.Add(content,1,0);
+ var tabs=new TabControl(){Dock=DockStyle.Fill,Appearance=TabAppearance.FlatButtons,SizeMode=TabSizeMode.Fixed,ItemSize=new Size(0,1)}; content.Controls.Add(tabs);
+ content.Controls.Add(status); status.BringToFront();
+ var pages=new[]{"RUNNING APPS","WORKBENCH","GAME NOTES","HARDWARE & HISTORY"};
+ for(int i=0;i<pages.Length;i++){int index=i;var b=new Button(){Text=pages[i],Width=190,Height=45,TextAlign=ContentAlignment.MiddleLeft,FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(42,48,39),ForeColor=Color.White,Padding=new Padding(10,0,0,0),Margin=new Padding(2,4,2,4)};b.FlatAppearance.BorderSize=0;b.Click+=(_,_)=>tabs.SelectedIndex=index;nav.Controls.Add(b);}
  var apps=new TabPage("RUNNING APPS"); tabs.TabPages.Add(apps); apps.Controls.Add(grid);
  foreach(var name in new[]{"PID","App","CPU %","RAM MB","Publisher (reported)","Explanation"}) grid.Columns.Add(name,name);
  grid.BackgroundColor=BackColor; grid.DefaultCellStyle.BackColor=Color.FromArgb(42,48,39); grid.DefaultCellStyle.ForeColor=Color.White; grid.DefaultCellStyle.SelectionBackColor=Color.FromArgb(70,105,49); grid.RowHeadersVisible=false;
