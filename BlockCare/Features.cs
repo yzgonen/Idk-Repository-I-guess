@@ -46,21 +46,21 @@ partial class Dashboard {
  try{
  var file=Path.Combine(data,"optimization-backup.json");if(File.Exists(file)){MessageBox.Show("BlockCare already has a saved optimization. Use Undo before applying again.");return;}
  var active=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(active,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");if(!match.Success){MessageBox.Show("Could not read your current power plan. No settings were changed.");return;}
- const string game=@"Software\\Microsoft\\GameBar", chrome=@"Software\\Policies\\Google\\Chrome";
+ const string game=@"Software\Microsoft\GameBar", chrome=@"Software\Policies\Google\Chrome";
  var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode"),ChromeSaver=ReadDword(chrome,"HighEfficiencyModeEnabled")};
  Directory.CreateDirectory(data);File.WriteAllText(file,JsonSerializer.Serialize(backup));
  WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);WriteDword(chrome,"HighEfficiencyModeEnabled",1);
  var result=await Run("powercfg.exe","/setactive SCHEME_MIN");
- if(!string.IsNullOrWhiteSpace(result)){await UndoPCAsync();MessageBox.Show("Windows could not apply the power plan. Previous settings were restored.\\n"+result);return;}
+ if(!string.IsNullOrWhiteSpace(result)){await UndoPCAsync();MessageBox.Show("Windows could not apply the power plan. Previous settings were restored.\n"+result);return;}
  Open("https://support.google.com/chrome/answer/12929150");
- MessageBox.Show("Optimization applied:\\n• Windows switched to High Performance.\\n• Windows Game Mode was enabled.\\n• Chrome Memory Saver was enabled by its supported Windows setting.\\n\\nRestart Chrome for its setting to take effect. Open chrome://settings/performance to review it.\\n\\nThis may increase heat and power use. Use Undo BlockCare optimization to restore your previous settings.","BlockCare optimization");
- }catch(Exception ex){var backup=Path.Combine(data,"optimization-backup.json");if(File.Exists(backup)){try{await UndoPCAsync();}catch{}}MessageBox.Show("Could not finish the optimization: "+ex.Message+"\\nAny saved settings were restored where possible.");}
+ MessageBox.Show("Optimization applied:\n• Windows switched to High Performance.\n• Windows Game Mode was enabled.\n• Chrome Memory Saver was enabled by its supported Windows setting.\n\nRestart Chrome for its setting to take effect. Open chrome://settings/performance to review it.\n\nThis may increase heat and power use. Use Undo BlockCare optimization to restore your previous settings.","BlockCare optimization");
+ }catch(Exception ex){var backup=Path.Combine(data,"optimization-backup.json");if(File.Exists(backup)){try{await UndoPCAsync();}catch{}}MessageBox.Show("Could not finish the optimization: "+ex.Message+"\nAny saved settings were restored where possible.");}
  }
  async Task UndoPCAsync(){
  var file=Path.Combine(data,"optimization-backup.json");if(!File.Exists(file))throw new Exception("No saved optimization to undo.");
  var b=JsonSerializer.Deserialize<SavedPlan>(File.ReadAllText(file))??throw new Exception("Saved settings backup is unreadable.");
  if(!Guid.TryParse(b.Power,out _))throw new Exception("Saved power plan is invalid.");
- WriteDword(@"Software\\Microsoft\\GameBar","AutoGameModeEnabled",b.GameMode);WriteDword(@"Software\\Microsoft\\GameBar","AllowAutoGameMode",b.GameModeAllowed);WriteDword(@"Software\\Policies\\Google\\Chrome","HighEfficiencyModeEnabled",b.ChromeSaver);
+ WriteDword(@"Software\Microsoft\GameBar","AutoGameModeEnabled",b.GameMode);WriteDword(@"Software\Microsoft\GameBar","AllowAutoGameMode",b.GameModeAllowed);WriteDword(@"Software\Policies\Google\Chrome","HighEfficiencyModeEnabled",b.ChromeSaver);
  var result=await Run("powercfg.exe","/setactive "+b.Power);if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);File.Delete(file);
  }
  async void UndoPC(){try{await UndoPCAsync();MessageBox.Show("Your saved Windows and Chrome settings were restored. Restart Chrome if it is open.");}catch(Exception ex){MessageBox.Show(ex.Message);}}
