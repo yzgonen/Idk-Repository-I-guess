@@ -7,7 +7,7 @@ namespace BlockCare;
 static class Program {
  [STAThread] static void Main(){ApplicationConfiguration.Initialize(); Application.Run(new Dashboard());}
 }
-class Dashboard:Form {
+partial class Dashboard:Form {
  NotifyIcon tray=new(); System.Windows.Forms.Timer timer=new(){Interval=3000};
  DataGridView grid=new(){Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,MultiSelect=false,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill};
  Label status=new(){Dock=DockStyle.Top,Height=65,Padding=new Padding(16),ForeColor=Color.LightGreen};
@@ -31,11 +31,11 @@ class Dashboard:Form {
  Add(panel,"Save usage report",()=>Export());
  var games=new TabPage("GAME NOTES"); tabs.TabPages.Add(games);
  games.Controls.Add(new TextBox(){Multiline=true,ReadOnly=true,Dock=DockStyle.Fill,BackColor=BackColor,ForeColor=Color.White,Font=Font,Text="YOUR PC: i5-8400 / GTX 1060 6 GB / 16 GB RAM\r\n\r\nFortnite: compare Performance rendering mode with your current settings.\r\nRocket League: compare lower effects and a sustainable FPS cap.\r\nMinecraft: lower render and simulation distance when CPU usage spikes.\r\nChrome: Memory Saver can free memory from inactive tabs.\r\n\r\nUse the Running Apps page during a slowdown. CPU percentages use the whole processor. RAM totals per process can include shared memory.\r\n\r\nThis version measures process CPU and memory. It does not measure FPS, GPU usage, temperatures or per-app network traffic. Lower resource numbers alone do not prove smoother gameplay.\r\n\r\nPublisher labels are file metadata, NOT verified signatures or malware verdicts. Unknown apps need investigation. Windows Security performs virus checks.\r\n\r\nClosing this window keeps monitoring in the tray. Double-click the tray icon to open; right-click Exit to stop."});
- tray.Icon=SystemIcons.Application; tray.Text="BlockCare"; tray.Visible=true; var menu=new ContextMenuStrip(); menu.Items.Add("Open",null,(_,_)=>ShowDashboard()); menu.Items.Add("Pause / resume",null,(_,_)=>timer.Enabled=!timer.Enabled); menu.Items.Add("Exit",null,(_,_)=>{quitting=true;Close();}); tray.ContextMenuStrip=menu; tray.DoubleClick+=(_,_)=>ShowDashboard();
+ InstallFeatures(tabs, panel); tray.Icon=BlockIcon(); tray.Text="BlockCare"; tray.Visible=true; var menu=new ContextMenuStrip(); menu.Items.Add("Open",null,(_,_)=>ShowDashboard()); menu.Items.Add("Pause / resume",null,(_,_)=>timer.Enabled=!timer.Enabled); menu.Items.Add("Exit",null,(_,_)=>{quitting=true;Close();}); tray.ContextMenuStrip=menu; tray.DoubleClick+=(_,_)=>ShowDashboard();
  FormClosing+=(_,e)=>{if(!quitting){e.Cancel=true;Hide();}else{timer.Stop();tray.Dispose();}};
  Shown+=(_,_)=>Hide(); timer.Tick+=async(_,_)=>await RefreshApps(); timer.Start();
  }
- void Add(Control parent,string text,Action action){var b=new Button(){Text=text,AutoSize=true,Height=40,BackColor=Color.FromArgb(75,103,50),ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Margin=new Padding(6)}; b.Click+=(_,_)=>{try{action();}catch(Exception ex){MessageBox.Show(ex.Message,"BlockCare");}};parent.Controls.Add(b);}
+ void Add(Control parent,string text,Action action){var b=new Button(){Text=text,AutoSize=true,Height=40,BackColor=Color.FromArgb(75,103,50),ForeColor=Color.White,FlatStyle=FlatStyle.Flat,Margin=new Padding(6)}; b.Click+=(_,_)=>{try{PlayClick();action();}catch(Exception ex){MessageBox.Show(ex.Message,"BlockCare");}};parent.Controls.Add(b);}
  void ShowDashboard(){Show();WindowState=FormWindowState.Normal;Activate();}
  static void Open(string file)=>Process.Start(new ProcessStartInfo(file){UseShellExecute=true});
  async Task RefreshApps(){
