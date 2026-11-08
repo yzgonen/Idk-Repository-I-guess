@@ -54,7 +54,7 @@ partial class Dashboard {
  if(!string.IsNullOrWhiteSpace(result)){await UndoPCAsync();MessageBox.Show("Windows could not apply the power plan. Previous settings were restored.\\n"+result);return;}
  Open("https://support.google.com/chrome/answer/12929150");
  MessageBox.Show("Optimization applied:\\n• Windows switched to High Performance.\\n• Windows Game Mode was enabled.\\n• Chrome Memory Saver was enabled by its supported Windows setting.\\n\\nRestart Chrome for its setting to take effect. Open chrome://settings/performance to review it.\\n\\nThis may increase heat and power use. Use Undo BlockCare optimization to restore your previous settings.","BlockCare optimization");
- }catch(Exception ex){MessageBox.Show("Could not finish the optimization: "+ex.Message+"\\nUse Undo BlockCare optimization if a backup was saved.");}
+ }catch(Exception ex){var backup=Path.Combine(data,"optimization-backup.json");if(File.Exists(backup)){try{await UndoPCAsync();}catch{}}MessageBox.Show("Could not finish the optimization: "+ex.Message+"\\nAny saved settings were restored where possible.");}
  }
  async Task UndoPCAsync(){
  var file=Path.Combine(data,"optimization-backup.json");if(!File.Exists(file))throw new Exception("No saved optimization to undo.");
