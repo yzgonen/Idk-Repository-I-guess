@@ -40,6 +40,7 @@ partial class Dashboard : Form
     readonly Panel pageHost = new() { Dock = DockStyle.Fill, BackColor = Background };
     readonly Dictionary<int, (double Cpu, DateTime At)> previous = new();
     readonly List<Button> navButtons = new();
+    readonly int[] primaryNavModules = { 0, 4, 5, 7 };
     ComboBox gameChoice = new();
     int selectedGameIndex;
     Label optimizeResult = new();
@@ -105,7 +106,7 @@ partial class Dashboard : Form
 
         BuildMonitorGrid();
         gameChoice.DropDownStyle = ComboBoxStyle.DropDownList;
-        gameChoice.Items.AddRange(new object[] { "Fortnite", "Rocket League", "Minecraft" });
+        gameChoice.Items.AddRange(new object[] { "Minecraft", "Fortnite", "Valorant", "Counter-Strike 2", "Apex Legends", "Overwatch 2", "GTA V", "League of Legends", "PUBG", "Rocket League" });
         gameChoice.SelectedIndex = 0;
         LoadGamePaths();
         ShowDashboard();
@@ -147,17 +148,18 @@ partial class Dashboard : Form
         nav.Controls.Add(caption);
         var dashboard = new Button { Text = "←  BACK TO DASHBOARD", Location = new Point(10, 86), Size = new Size(184, 38), BackColor = Green, ForeColor = Color.FromArgb(4, 17, 10), FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI Semibold", 8.5f), Cursor = Cursors.Hand };
         dashboard.FlatAppearance.BorderSize = 0;
-        dashboard.Click += (_, _) => { SelectNavigation(-1); ShowDashboard(); };
+        dashboard.Click += (_, _) => { SelectNavigation(0); ShowDashboard(); };
         nav.Controls.Add(dashboard);
 
-        for (var i = 0; i < modules.Length; i++)
+        for (var i = 0; i < primaryNavModules.Length; i++)
         {
-            var index = i;
+            var index = primaryNavModules[i];
+            var label = index switch { 0 => "⌂   Dashboard", 4 => "◉   Latency", 5 => "▥   Network", _ => "🎮  Games & Apps" };
             var button = new Button
             {
-                Text = $"{i + 1:00}   {modules[i]}",
-                Tag = i,
-                Location = new Point(10, 136 + i * 42),
+                Text = label,
+                Tag = index,
+                Location = new Point(10, 136 + i * 44),
                 Size = new Size(184, 37),
                 TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(10, 0, 0, 0),
@@ -168,18 +170,26 @@ partial class Dashboard : Form
                 Cursor = Cursors.Hand
             };
             button.FlatAppearance.BorderSize = 0;
-            button.Click += (_, _) => { SelectNavigation(index); ShowModule(index); };
+            button.Click += (_, _) => { SelectNavigation(index); if (index == 0) ShowDashboard(); else ShowModule(index); };
             navButtons.Add(button);
             nav.Controls.Add(button);
         }
+        var more = new Button { Text = "···   And Many More", Location = new Point(10, 136 + primaryNavModules.Length * 44), Size = new Size(184, 37), TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0), BackColor = Sidebar, ForeColor = SecondaryText, FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI", 9, FontStyle.Italic), Cursor = Cursors.Hand };
+        more.FlatAppearance.BorderSize = 0;
+        var moreMenu = new ContextMenuStrip();
+        foreach (var index in Enumerable.Range(0, modules.Length).Where(x => !primaryNavModules.Contains(x)))
+            moreMenu.Items.Add(modules[index], null, (_, _) => { SelectNavigation(index); ShowModule(index); });
+        more.Click += (_, _) => moreMenu.Show(more, new Point(0, more.Height));
+        nav.Controls.Add(more);
     }
 
     void SelectNavigation(int selected)
     {
         for (var i = 0; i < navButtons.Count; i++)
         {
-            navButtons[i].BackColor = i == selected ? Color.FromArgb(26, 47, 35) : Sidebar;
-            navButtons[i].ForeColor = i == selected ? Green : Color.FromArgb(218, 222, 219);
+            var active = Convert.ToInt32(navButtons[i].Tag) == selected;
+            navButtons[i].BackColor = active ? Green : Sidebar;
+            navButtons[i].ForeColor = active ? Color.White : Color.FromArgb(218, 222, 219);
         }
     }
 
@@ -204,7 +214,7 @@ partial class Dashboard : Form
         {
             var index = i;
             var card = MakeGameCard(i, gameNames[i]);
-            void OpenGame() { selectedGameIndex = index; SelectNavigation(7); ShowModule(7); }
+            void OpenGame() { selectedGameIndex = Array.IndexOf(gameLibrary, gameNames[index]); SelectNavigation(7); ShowGameProfile(gameNames[index]); }
             void AttachClick(Control control) { control.Click += (_, _) => OpenGame(); foreach (Control child in control.Controls) AttachClick(child); }
             AttachClick(card);
             games.Controls.Add(card, i, 0);
@@ -279,6 +289,7 @@ partial class Dashboard : Form
 
     void ShowModule(int index)
     {
+        if (index is 4 or 5 or 7) { ShowOptimizerPage(index); return; }
         pageHost.Controls.Clear();
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Background };
         pageHost.Controls.Add(scroll);
@@ -370,7 +381,6 @@ partial class Dashboard : Form
         panel.Controls.Add(new Label { Text = "GAME PROFILE", Location = new Point(18, 16), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 12) });
         panel.Controls.Add(new Label { Text = "Choose a game, set its executable once, then apply Zenn's reversible Windows profile or launch it.", Location = new Point(18, 48), AutoSize = true, ForeColor = SecondaryText, Font = new Font("Segoe UI", 9) });
         gameChoice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 250, Font = new Font("Segoe UI", 10), BackColor = Card, ForeColor = Color.White, Location = new Point(18, 83) };
-        gameChoice.Items.AddRange(new object[] { "Fortnite", "Minecraft", "Rocket League" });
         gameChoice.SelectedIndex = Math.Clamp(selectedGameIndex, 0, gameChoice.Items.Count - 1);
         gameChoice.SelectedIndexChanged += (_, _) => { selectedGameIndex = gameChoice.SelectedIndex; RefreshGamePathLabel(); };
         panel.Controls.Add(gameChoice);

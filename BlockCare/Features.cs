@@ -10,7 +10,7 @@ partial class Dashboard {
  Version? updateVersion;
  readonly Dictionary<string,string?> gamePaths=new(StringComparer.OrdinalIgnoreCase);
  const string GpuPreferenceKey=@"Software\Microsoft\DirectX\UserGpuPreferences";
- static HttpClient CreateUpdateClient(){var c=new HttpClient(){Timeout=TimeSpan.FromSeconds(12)};c.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ZennUpdater","0.3.0"));c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));return c;}
+ static HttpClient CreateUpdateClient(){var c=new HttpClient(){Timeout=TimeSpan.FromSeconds(12)};c.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ZennUpdater","0.5.0"));c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));return c;}
  async Task CheckForUpdates(bool manual){
   updateButton.Enabled=false;updateButton.Text="CHECKING...";
   try{
