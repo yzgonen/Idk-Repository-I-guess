@@ -6,9 +6,15 @@ A Windows x64 PC optimizer adapted to the supplied HP Pavilion Gaming Desktop sp
 
 Zenn uses a dark, green-accented module dashboard with a custom blue lightning mark and 12 sections: Start, Driver, Bloatware, Telemetry, Latency, Network, Overclocking, Games, Miscellaneous, Cleanup, BIOS, and Experimental.
 
+## Install and update
+
+GitHub Actions builds `ZennSetup.exe`, a per-user Windows installer. Its default location is `%LOCALAPPDATA%\Programs\Zenn` (on a typical PC, under `C:\Users\<you>\AppData\Local\Programs\Zenn`). The setup wizard creates Start menu and desktop shortcuts. It does not need administrator access.
+
+Zenn checks the GitHub release for updates at startup. When a newer version is available, choose **UPDATE AVAILABLE** in the top bar; Zenn downloads and opens the setup wizard, then closes so the installer can replace the app. Your tune-up backup data remains in its existing local data folder.
+
 ## Build
 
-The project is a .NET 8 WinForms app. GitHub Actions publishes a self-contained Windows x64 executable named `Zenn.exe` from the `zenn-swills-style` branch.
+The project is a .NET 8 WinForms app. GitHub Actions publishes a self-contained Windows x64 installer from the `zenn-swills-style` branch.
 
 ## Behavior
 
