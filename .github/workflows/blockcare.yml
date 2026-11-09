@@ -1,6 +1,7 @@
-name: BlockCare Windows
+name: Zenn Windows Release
 on:
   push:
+    branches: [main]
     paths: ['BlockCare/**', '.github/workflows/blockcare.yml']
   workflow_dispatch:
 permissions:
@@ -16,14 +17,14 @@ jobs:
       - run: dotnet publish BlockCare/BlockCare.csproj -c Release -o output
       - uses: actions/upload-artifact@v4
         with:
-          name: BlockCare-Windows
-          path: output/BlockCare.exe
+          name: Zenn-Windows-x64
+          path: output/Zenn.exe
       - name: Publish direct EXE download
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: blockcare-latest
-          name: BlockCare latest build
+          tag_name: zenn-latest
+          name: Zenn latest build
           prerelease: true
           make_latest: false
           overwrite_files: true
-          files: output/BlockCare.exe
+          files: output/Zenn.exe
