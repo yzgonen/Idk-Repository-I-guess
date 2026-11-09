@@ -1,11 +1,11 @@
-name: Zenn Windows Build
+name: Zenn Windows Installer and Release
 on:
   push:
     branches: [zenn-swills-style]
     paths: ['BlockCare/**', '.github/workflows/zenn-build.yml']
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -16,8 +16,22 @@ jobs:
           dotnet-version: '8.0.x'
       - name: Publish Zenn for Windows x64
         run: dotnet publish BlockCare/BlockCare.csproj -c Release -o output
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build setup wizard
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" BlockCare/ZennSetup.iss'
       - uses: actions/upload-artifact@v4
         with:
-          name: Zenn-Windows-x64
-          path: output/Zenn.exe
+          name: Zenn-Setup-Windows-x64
+          path: output/ZennSetup.exe
           if-no-files-found: error
+      - name: Publish update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: zenn-latest
+          name: Zenn v0.3.0
+          body: "Zenn setup installer for Windows x64."
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          files: output/ZennSetup.exe
