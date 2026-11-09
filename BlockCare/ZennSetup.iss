@@ -13,7 +13,7 @@ DefaultGroupName=Zenn
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64
-OutputDir=output
+OutputDir=..\output
 OutputBaseFilename=ZennSetup
 WizardStyle=modern
 Compression=lzma2/ultra64
@@ -27,7 +27,7 @@ SetupLogging=yes
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
-Source: "output\Zenn.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\output\Zenn.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Zenn"; Filename: "{app}\Zenn.exe"
