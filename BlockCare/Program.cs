@@ -36,6 +36,7 @@ partial class Dashboard : Form
         AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
     };
     readonly Label status = new() { Dock = DockStyle.Fill, ForeColor = Green, BackColor = Sidebar, Padding = new Padding(18, 13, 0, 0) };
+    readonly Button updateButton = new() { Dock = DockStyle.Fill, Text = "CHECKING UPDATES", BackColor = Green, ForeColor = Color.FromArgb(4, 17, 10), FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI Semibold", 8), Cursor = Cursors.Hand, Margin = new Padding(0, 7, 14, 7) };
     readonly Panel pageHost = new() { Dock = DockStyle.Fill, BackColor = Background };
     readonly Dictionary<int, (double Cpu, DateTime At)> previous = new();
     readonly List<Button> navButtons = new();
@@ -68,6 +69,7 @@ partial class Dashboard : Form
     public Dashboard()
     {
         Text = "Zenn";
+        Icon = ZennIcon();
         Size = new Size(1220, 820);
         MinimumSize = new Size(1000, 680);
         StartPosition = FormStartPosition.CenterScreen;
@@ -86,13 +88,18 @@ partial class Dashboard : Form
 
         var body = new Panel { Dock = DockStyle.Fill, BackColor = Background, Padding = new Padding(0) };
         shell.Controls.Add(body, 1, 0);
-        var bodyLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, BackColor = Background, Margin = Padding.Empty };
+        var bodyLayout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, BackColor = Background, Margin = Padding.Empty };
+        bodyLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bodyLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
         bodyLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         bodyLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         body.Controls.Add(bodyLayout);
         status.Text = "ZENN  /  SYSTEM READY";
         status.Font = new Font("Segoe UI Semibold", 9);
+        updateButton.FlatAppearance.BorderSize = 0;
+        updateButton.Click += async (_, _) => { if (string.IsNullOrEmpty(updateInstallerUrl)) await CheckForUpdates(true); else await InstallAvailableUpdate(); };
         bodyLayout.Controls.Add(status, 0, 0);
+        bodyLayout.Controls.Add(updateButton, 1, 0);
         bodyLayout.Controls.Add(pageHost, 0, 1);
 
         BuildMonitorGrid();
@@ -117,7 +124,7 @@ partial class Dashboard : Form
             else { timer.Stop(); tray.Dispose(); }
         };
         timer.Tick += async (_, _) => { UpdateGameFocus(); await RefreshApps(); };
-        Shown += async (_, _) => { await RefreshApps(); timer.Start(); };
+        Shown += async (_, _) => { await RefreshApps(); timer.Start(); await CheckForUpdates(false); };
         FindSound(false);
     }
 
