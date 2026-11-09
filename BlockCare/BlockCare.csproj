@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Zenn</AssemblyName>
     <Product>Zenn PC Optimizer</Product>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
