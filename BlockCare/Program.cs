@@ -41,6 +41,7 @@ partial class Dashboard : Form
     readonly Dictionary<int, (double Cpu, DateTime At)> previous = new();
     readonly List<Button> navButtons = new();
     ComboBox gameChoice = new();
+    int selectedGameIndex;
     Label optimizeResult = new();
     bool quitting, busy;
 
@@ -106,6 +107,7 @@ partial class Dashboard : Form
         gameChoice.DropDownStyle = ComboBoxStyle.DropDownList;
         gameChoice.Items.AddRange(new object[] { "Fortnite", "Rocket League", "Minecraft" });
         gameChoice.SelectedIndex = 0;
+        LoadGamePaths();
         ShowDashboard();
 
         tray.Icon = ZennIcon();
@@ -193,15 +195,26 @@ partial class Dashboard : Form
 
         var spec = new Label { Text = "YOUR PC  •  Intel Core i5-8400   |   NVIDIA GTX 1060 6 GB   |   16 GB RAM   |   1080p / 144 Hz", Location = new Point(33, 110), AutoSize = true, ForeColor = Green, Font = new Font("Segoe UI Semibold", 9) };
         scroll.Controls.Add(spec);
+        var gamesTitle = new Label { Text = "YOUR GAMES", Location = new Point(33, 153), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 13) };
+        scroll.Controls.Add(gamesTitle);
+        var games = new TableLayoutPanel { Location = new Point(26, 184), Size = new Size(Math.Max(650, scroll.ClientSize.Width - 68), 132), ColumnCount = 3, RowCount = 1, BackColor = Background, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+        for (var c = 0; c < 3; c++) games.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
+        var gameNames = new[] { "Fortnite", "Minecraft", "Rocket League" };
+        for (var i = 0; i < gameNames.Length; i++)
+        {
+            var index = i;
+            var card = MakeGameCard(i, gameNames[i]);
+            void OpenGame() { selectedGameIndex = index; SelectNavigation(7); ShowModule(7); }
+            void AttachClick(Control control) { control.Click += (_, _) => OpenGame(); foreach (Control child in control.Controls) AttachClick(child); }
+            AttachClick(card);
+            games.Controls.Add(card, i, 0);
+        }
+        scroll.Controls.Add(games);
+        scroll.Resize += (_, _) => { if (!scroll.IsDisposed && scroll.Controls.Contains(games)) games.Width = Math.Max(650, scroll.ClientSize.Width - 68); };
 
-        var launch = new Button { Text = "RUN GAMING TUNE-UP", Location = new Point(33, 151), Size = new Size(220, 44), BackColor = Green, ForeColor = Color.FromArgb(4, 17, 10), FlatStyle = FlatStyle.Flat, Font = new Font("Segoe UI Semibold", 9), Cursor = Cursors.Hand };
-        launch.FlatAppearance.BorderSize = 0;
-        launch.Click += async (_, _) => { SelectNavigation(0); ShowModule(0); await OptimizeFPS(); };
-        scroll.Controls.Add(launch);
-
-        var section = new Label { Text = "OPTIMIZER MODULES", Location = new Point(33, 219), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 12) };
+        var section = new Label { Text = "OPTIMIZER MODULES", Location = new Point(33, 345), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 12) };
         scroll.Controls.Add(section);
-        var cards = new TableLayoutPanel { Location = new Point(30, 250), Size = new Size(Math.Max(650, scroll.ClientSize.Width - 74), 420), ColumnCount = 3, RowCount = 4, BackColor = Background, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
+        var cards = new TableLayoutPanel { Location = new Point(30, 376), Size = new Size(Math.Max(650, scroll.ClientSize.Width - 74), 420), ColumnCount = 3, RowCount = 4, BackColor = Background, Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
         for (var c = 0; c < 3; c++) cards.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.333f));
         for (var r = 0; r < 4; r++) cards.RowStyles.Add(new RowStyle(SizeType.Percent, 25));
         for (var i = 0; i < modules.Length; i++)
@@ -217,6 +230,42 @@ partial class Dashboard : Form
         status.Text = "ZENN  /  DASHBOARD";
     }
 
+    Panel MakeGameCard(int index, string name)
+    {
+        var installed = !string.IsNullOrWhiteSpace(gamePaths.GetValueOrDefault(name)) && File.Exists(gamePaths[name]);
+        var panel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(7), BackColor = Card, Cursor = Cursors.Hand, BorderStyle = BorderStyle.FixedSingle };
+        panel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 3, BackColor = Green });
+        panel.Controls.Add(new Label { Text = name, Location = new Point(16, 13), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 12) });
+        var badge = new Panel { Location = new Point(15, 49), Size = new Size(40, 40), BackColor = Color.FromArgb(31, 34, 32) };
+        badge.Controls.Add(new Label { Text = name == "Fortnite" ? "F" : name == "Minecraft" ? "M" : "RL", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Green, Font = new Font("Segoe UI Semibold", 13, FontStyle.Bold) });
+        panel.Controls.Add(badge);
+        panel.Controls.Add(new Label { Text = installed ? "READY  ·  CLICK TO OPEN" : "SET UP  ·  CLICK TO LOCATE", Location = new Point(67, 53), AutoSize = true, ForeColor = installed ? Green : SecondaryText, Font = new Font("Segoe UI Semibold", 8) });
+        panel.Controls.Add(new Label { Text = installed ? "Game profile and launch controls" : "Choose the game's .exe to enable controls", Location = new Point(67, 75), AutoSize = true, ForeColor = SecondaryText, Font = new Font("Segoe UI", 8) });
+        AnimateCard(panel);
+        return panel;
+    }
+
+    void AnimateCard(Panel card)
+    {
+        var normal = Card; var hover = Color.FromArgb(31, 38, 34);
+        System.Windows.Forms.Timer? animation = null;
+        void Start(Color target)
+        {
+            animation?.Stop(); animation?.Dispose();
+            var from = card.BackColor; var frame = 0; animation = new System.Windows.Forms.Timer { Interval = 16 };
+            animation.Tick += (_, _) =>
+            {
+                frame++; var t = Math.Min(1f, frame / 8f);
+                card.BackColor = Color.FromArgb((int)(from.R + (target.R - from.R) * t), (int)(from.G + (target.G - from.G) * t), (int)(from.B + (target.B - from.B) * t));
+                if (frame >= 8) { animation.Stop(); animation.Dispose(); animation = null; }
+            };
+            animation.Start();
+        }
+        card.MouseEnter += (_, _) => Start(hover);
+        card.MouseLeave += (_, _) => Start(normal);
+        foreach (Control child in card.Controls) { child.MouseEnter += (_, _) => Start(hover); child.MouseLeave += (_, _) => Start(normal); }
+    }
+
     Panel MakeModuleCard(int index, string title, string description)
     {
         var panel = new Panel { Dock = DockStyle.Fill, Margin = new Padding(7), BackColor = Card, Cursor = Cursors.Hand, BorderStyle = BorderStyle.FixedSingle };
@@ -224,6 +273,7 @@ partial class Dashboard : Form
         panel.Controls.Add(new Label { Text = $"{index + 1:00}", Location = new Point(15, 18), AutoSize = true, ForeColor = Green, Font = new Font("Segoe UI Semibold", 11) });
         panel.Controls.Add(new Label { Text = title, Location = new Point(56, 18), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 11) });
         panel.Controls.Add(new Label { Text = description, Location = new Point(15, 52), Size = new Size(300, 44), ForeColor = SecondaryText, Font = new Font("Segoe UI", 8.5f) });
+        AnimateCard(panel);
         return panel;
     }
 
@@ -315,18 +365,24 @@ partial class Dashboard : Form
 
     void AddGameControls(FlowLayoutPanel cards)
     {
-        var panel = MakeActionCard("Choose a game", "Game-specific checks are read-only unless you explicitly apply the reversible Windows tune-up.");
-        gameChoice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 255, Font = new Font("Segoe UI", 10), BackColor = Card, ForeColor = Color.White, Location = new Point(18, 87) };
-        gameChoice.Items.AddRange(new object[] { "Fortnite", "Rocket League", "Minecraft" });
-        gameChoice.SelectedIndex = 0;
+        var panel = new Panel { Width = 670, Height = 268, BackColor = Card, Margin = new Padding(8), BorderStyle = BorderStyle.FixedSingle };
+        panel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 3, BackColor = Green });
+        panel.Controls.Add(new Label { Text = "GAME PROFILE", Location = new Point(18, 16), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 12) });
+        panel.Controls.Add(new Label { Text = "Choose a game, set its executable once, then apply Zenn's reversible Windows profile or launch it.", Location = new Point(18, 48), AutoSize = true, ForeColor = SecondaryText, Font = new Font("Segoe UI", 9) });
+        gameChoice = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 250, Font = new Font("Segoe UI", 10), BackColor = Card, ForeColor = Color.White, Location = new Point(18, 83) };
+        gameChoice.Items.AddRange(new object[] { "Fortnite", "Minecraft", "Rocket League" });
+        gameChoice.SelectedIndex = Math.Clamp(selectedGameIndex, 0, gameChoice.Items.Count - 1);
+        gameChoice.SelectedIndexChanged += (_, _) => { selectedGameIndex = gameChoice.SelectedIndex; RefreshGamePathLabel(); };
         panel.Controls.Add(gameChoice);
-        var button = MakeGreenButton("OPTIMIZE SELECTED GAME", 226);
-        button.Location = new Point(18, 129);
-        button.Click += async (_, _) => await OptimizeFPS();
-        panel.Controls.Add(button);
+        gamePathLabel = new Label { Location = new Point(18, 119), Size = new Size(620, 25), AutoEllipsis = true, ForeColor = SecondaryText, Font = new Font("Segoe UI", 8.5f) };
+        panel.Controls.Add(gamePathLabel); RefreshGamePathLabel();
+        var optimize = MakeGreenButton("APPLY GAME PROFILE", 210); optimize.Location = new Point(18, 157); optimize.Click += async (_, _) => await OptimizeFPS(); panel.Controls.Add(optimize);
+        var launch = MakeGreenButton("LAUNCH GAME", 145); launch.Location = new Point(18, 207); launch.Click += (_, _) => LaunchSelectedGame(); panel.Controls.Add(launch);
+        var locate = MakeGreenButton("LOCATE GAME", 145); locate.Location = new Point(176, 207); locate.Click += (_, _) => LocateSelectedGame(); panel.Controls.Add(locate);
         cards.Controls.Add(panel);
-        AddActionCard(cards, "Live game monitor", "View the game's CPU and memory use while it runs.", "OPEN MONITOR", () => ShowMonitor());
-        AddActionCard(cards, "Game settings", "Some checks read config values; game files are not rewritten without an explicit action.", "VIEW GAME NOTE", () => MessageBox.Show("Start with the game's own graphics menu and verify frame cap, V-Sync, and render settings.", "Game settings"));
+        AddActionCard(cards, "Live game monitor", "See process CPU and memory use while the game runs.", "OPEN MONITOR", () => ShowMonitor());
+        AddActionCard(cards, "Undo Windows profile", "Restore the saved power plan, Game Mode, and graphics preference.", "UNDO CHANGES", () => UndoPC());
+        AddActionCard(cards, "Game settings", "Inspect frame limits and V-Sync for Fortnite; other game files are left untouched.", "CHECK GAME SETTINGS", async () => await OptimizeFPS());
     }
 
     void AddActionCard(FlowLayoutPanel parent, string title, string description, string buttonText, Action action)
@@ -345,6 +401,7 @@ partial class Dashboard : Form
         p.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 3, BackColor = Green });
         p.Controls.Add(new Label { Text = title, Location = new Point(17, 18), AutoSize = true, ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 11) });
         p.Controls.Add(new Label { Text = description, Location = new Point(18, 49), Size = new Size(276, 67), ForeColor = SecondaryText, Font = new Font("Segoe UI", 8.5f) });
+        AnimateCard(p);
         return p;
     }
 

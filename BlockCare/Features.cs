@@ -8,6 +8,8 @@ partial class Dashboard {
  static readonly HttpClient UpdateHttp=CreateUpdateClient();
  string? updateInstallerUrl;
  Version? updateVersion;
+ readonly Dictionary<string,string?> gamePaths=new(StringComparer.OrdinalIgnoreCase);
+ const string GpuPreferenceKey=@"Software\Microsoft\DirectX\UserGpuPreferences";
  static HttpClient CreateUpdateClient(){var c=new HttpClient(){Timeout=TimeSpan.FromSeconds(12)};c.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ZennUpdater","0.3.0"));c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));return c;}
  async Task CheckForUpdates(bool manual){
   updateButton.Enabled=false;updateButton.Text="CHECKING...";
@@ -32,6 +34,36 @@ partial class Dashboard {
    Process.Start(new ProcessStartInfo(setup,"/CLOSEAPPLICATIONS"){UseShellExecute=true});quitting=true;Close();
   }catch(Exception ex){updateButton.Enabled=true;updateButton.Text="UPDATE AVAILABLE";MessageBox.Show("The update couldn't be installed. Try again later.\n\n"+ex.Message,"Zenn update");}
  }
+ void LoadGamePaths(){
+  try{Directory.CreateDirectory(data);var file=Path.Combine(data,"games.json");if(File.Exists(file)){var saved=JsonSerializer.Deserialize<Dictionary<string,string?>>(File.ReadAllText(file));if(saved!=null)foreach(var pair in saved)gamePaths[pair.Key]=pair.Value;}}catch{}
+  foreach(var name in new[]{"Fortnite","Minecraft","Rocket League"})if(string.IsNullOrWhiteSpace(gamePaths.GetValueOrDefault(name))||!File.Exists(gamePaths[name]))gamePaths[name]=FindGamePath(name);
+ }
+ string? FindGamePath(string name){
+  if(name=="Minecraft")return FindMinecraftJava();
+  var pf=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);var pf86=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+  var candidates=name=="Fortnite"
+   ?new[]{Path.Combine(pf,"Epic Games","Fortnite","FortniteGame","Binaries","Win64","FortniteClient-Win64-Shipping.exe"),Path.Combine(pf86,"Epic Games","Fortnite","FortniteGame","Binaries","Win64","FortniteClient-Win64-Shipping.exe"),Path.Combine("D:\\Epic Games","Fortnite","FortniteGame","Binaries","Win64","FortniteClient-Win64-Shipping.exe")}
+   :new[]{Path.Combine(pf,"Epic Games","rocketleague","Binaries","Win64","RocketLeague.exe"),Path.Combine(pf86,"Epic Games","rocketleague","Binaries","Win64","RocketLeague.exe"),Path.Combine(pf,"Steam","steamapps","common","rocketleague","Binaries","Win64","RocketLeague.exe"),Path.Combine(pf86,"Steam","steamapps","common","rocketleague","Binaries","Win64","RocketLeague.exe")};
+  return candidates.FirstOrDefault(File.Exists);
+ }
+ string? FindMinecraftJava(){
+  var runtime=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),".minecraft","runtime");try{return Directory.Exists(runtime)?Directory.GetFiles(runtime,"javaw.exe",SearchOption.AllDirectories).OrderByDescending(File.GetLastWriteTimeUtc).FirstOrDefault():null;}catch{return null;}
+ }
+ string? SelectedGamePath()=>gamePaths.GetValueOrDefault(Convert.ToString(gameChoice.SelectedItem)??"");
+ void SaveGamePaths(){Directory.CreateDirectory(data);File.WriteAllText(Path.Combine(data,"games.json"),JsonSerializer.Serialize(gamePaths));}
+ void LocateSelectedGame(){
+  var name=Convert.ToString(gameChoice.SelectedItem)??"Game";using var dialog=new OpenFileDialog{Title=name=="Minecraft"?"Choose javaw.exe from the Minecraft runtime":"Choose the game executable",Filter="Windows applications (*.exe)|*.exe",CheckFileExists=true};
+  var current=SelectedGamePath();if(!string.IsNullOrWhiteSpace(current)&&File.Exists(current)){dialog.InitialDirectory=Path.GetDirectoryName(current);dialog.FileName=Path.GetFileName(current);}
+  if(dialog.ShowDialog(this)!=DialogResult.OK)return;gamePaths[name]=dialog.FileName;try{SaveGamePaths();}catch(Exception ex){MessageBox.Show("Game selected, but Zenn couldn't save the path: "+ex.Message,"Zenn");}RefreshGamePathLabel();
+ }
+ void LaunchSelectedGame(){
+  var name=Convert.ToString(gameChoice.SelectedItem)??"";var path=name=="Minecraft"?FindMinecraftLauncher():SelectedGamePath();
+  if(name=="Minecraft"&&string.IsNullOrWhiteSpace(path)){try{Process.Start(new ProcessStartInfo("minecraft:"){UseShellExecute=true});return;}catch{}}
+  if(string.IsNullOrWhiteSpace(path)||!File.Exists(path)){MessageBox.Show("Zenn hasn't found this game's launcher. Locate the game first or open it from its launcher.","Game not found");return;}try{Process.Start(new ProcessStartInfo(path){UseShellExecute=true});}catch(Exception ex){MessageBox.Show("Couldn't start the selected game: "+ex.Message,"Zenn");}
+ }
+ string? FindMinecraftLauncher(){var local=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);var pf86=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);return new[]{Path.Combine(pf86,"Minecraft Launcher","MinecraftLauncher.exe"),Path.Combine(local,"Programs","Minecraft Launcher","MinecraftLauncher.exe")}.FirstOrDefault(File.Exists);}
+ Label? gamePathLabel;
+ void RefreshGamePathLabel(){if(gamePathLabel==null)return;var path=SelectedGamePath();gamePathLabel.Text=string.IsNullOrWhiteSpace(path)?"Not found — choose Locate Game to select its .exe.":"Detected: "+path;}
  string data=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BlockCare"); // Preserve existing tune-up backups.
  bool sound=true; string? clickFile; readonly NAudio.Wave.WaveOutEvent speaker=new(); NAudio.Wave.WaveStream? audio;
  CheckBox? focusEnabled, focusChrome, focusDiscord, focusWhatsApp;
@@ -99,7 +131,7 @@ partial class Dashboard {
  async void PowerOn(){try{var file=Path.Combine(data,"power-plan.txt");if(File.Exists(file)){MessageBox.Show("A previous plan is already saved. Restore it before applying again.");return;}var current=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(current,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");if(!match.Success){MessageBox.Show(current);return;}if(MessageBox.Show("Switch to High Performance? This can increase power use and heat. It does not guarantee more FPS.","Gaming power",MessageBoxButtons.YesNo)!=DialogResult.Yes)return;File.WriteAllText(file,match.Value);var result=await Run("powercfg.exe","/setactive SCHEME_MIN");MessageBox.Show(string.IsNullOrWhiteSpace(result)?"Applied. Use Restore previous power plan to undo.":result);}catch(Exception ex){MessageBox.Show(ex.Message);}}
  async void PowerOff(){try{var file=Path.Combine(data,"power-plan.txt");if(!File.Exists(file)){MessageBox.Show("No saved plan to restore.");return;}var id=File.ReadAllText(file).Trim();if(!Guid.TryParse(id,out _))throw new Exception("Saved plan is invalid.");var r=await Run("powercfg.exe","/setactive "+id);if(string.IsNullOrWhiteSpace(r)){File.Delete(file);MessageBox.Show("Previous power plan restored.");}else MessageBox.Show(r);}catch(Exception ex){MessageBox.Show(ex.Message);}}
  void Scan(){var exe=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),"Windows Defender","MpCmdRun.exe");if(!File.Exists(exe)){Open("windowsdefender:");return;}Process.Start(new ProcessStartInfo(exe,"-Scan -ScanType 1"){UseShellExecute=true,Verb="runas"});}
- sealed class SavedPlan { public string Power {get;set;}=""; public int? GameMode {get;set;} public int? GameModeAllowed {get;set;} public int? ChromeSaver {get;set;} }
+ sealed class SavedPlan { public string Power {get;set;}=""; public int? GameMode {get;set;} public int? GameModeAllowed {get;set;} public int? ChromeSaver {get;set;} public Dictionary<string,string?>? GpuPreferences {get;set;} }
  int? ReadDword(string path,string name){using var k=Registry.CurrentUser.OpenSubKey(path);var v=k?.GetValue(name);return v==null?null:Convert.ToInt32(v);}
  void WriteDword(string path,string name,int? value){using var k=Registry.CurrentUser.CreateSubKey(path,true);if(value.HasValue)k.SetValue(name,value.Value,RegistryValueKind.DWord);else k.DeleteValue(name,false);}
  async void OptimizePC(){
@@ -125,29 +157,35 @@ partial class Dashboard {
  if(!Guid.TryParse(b.Power,out _))throw new Exception("Saved power plan is invalid.");
  var problems=new List<string>();
  try{WriteDword(@"Software\Microsoft\GameBar","AutoGameModeEnabled",b.GameMode);WriteDword(@"Software\Microsoft\GameBar","AllowAutoGameMode",b.GameModeAllowed);}catch(Exception ex){problems.Add("Game Mode: "+ex.Message);}
+ if(b.GpuPreferences!=null)foreach(var pair in b.GpuPreferences){try{using var key=Registry.CurrentUser.CreateSubKey(GpuPreferenceKey,true);if(pair.Value==null)key.DeleteValue(pair.Key,false);else key.SetValue(pair.Key,pair.Value,RegistryValueKind.String);}catch(Exception ex){problems.Add("GPU preference: "+ex.Message);}}
  if(b.ChromeSaver.HasValue){try{WriteDword(@"Software\Policies\Google\Chrome","HighEfficiencyModeEnabled",b.ChromeSaver);}catch(Exception ex){problems.Add("Chrome policy: "+ex.Message);}}
  var result=await Run("powercfg.exe","/setactive "+b.Power);if(!string.IsNullOrWhiteSpace(result))problems.Add("Power plan: "+result);
  if(problems.Count==0)File.Delete(file);else throw new Exception("Some settings could not be restored:\n"+string.Join("\n",problems));
  }
  async void UndoPC(){try{await UndoPCAsync();MessageBox.Show("Your saved Windows settings were restored.");}catch(Exception ex){MessageBox.Show(ex.Message);}}
- async Task<string> ApplyGamingProfile(){
+ async Task<string> ApplyGamingProfile(string? gameExe=null){
  var file=Path.Combine(data,"optimization-backup.json");
- if(File.Exists(file))return "Your reversible gaming profile is already active.";
+ if(File.Exists(file)){
+  if(string.IsNullOrWhiteSpace(gameExe)||!File.Exists(gameExe))return "Your reversible gaming profile is already active.";
+  try{var saved=JsonSerializer.Deserialize<SavedPlan>(File.ReadAllText(file))??throw new Exception("Saved backup is unreadable.");saved.GpuPreferences??=new Dictionary<string,string?>();if(!saved.GpuPreferences.ContainsKey(gameExe)){using var oldKey=Registry.CurrentUser.OpenSubKey(GpuPreferenceKey);saved.GpuPreferences[gameExe]=oldKey?.GetValue(gameExe) as string;}using(var key=Registry.CurrentUser.CreateSubKey(GpuPreferenceKey,true))key.SetValue(gameExe,"GpuPreference=2;",RegistryValueKind.String);File.WriteAllText(file,JsonSerializer.Serialize(saved));return "The reversible gaming profile is already active. Windows per-app graphics preference is now set to High performance for this game.";}catch(Exception ex){return "The gaming profile is already active, but Zenn couldn't update this game's graphics preference: "+ex.Message;}
+ }
  var active=await Run("powercfg.exe","/getactivescheme");var match=System.Text.RegularExpressions.Regex.Match(active,@"[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}");
  if(!match.Success)return "Couldn't read your current power plan, so no changes were made.";
  const string game=@"Software\Microsoft\GameBar";
  var backup=new SavedPlan{Power=match.Value,GameMode=ReadDword(game,"AutoGameModeEnabled"),GameModeAllowed=ReadDword(game,"AllowAutoGameMode")};
+ if(!string.IsNullOrWhiteSpace(gameExe)&&File.Exists(gameExe)){using var key=Registry.CurrentUser.OpenSubKey(GpuPreferenceKey);backup.GpuPreferences=new Dictionary<string,string?>{{gameExe,key?.GetValue(gameExe) as string}};}
  Directory.CreateDirectory(data);File.WriteAllText(file,JsonSerializer.Serialize(backup));
- try{WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);var result=await Run("powercfg.exe","/setactive SCHEME_MIN");if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);return "Windows Game Mode and High Performance power plan enabled. This may increase heat and power use. Use Settings → Undo to restore.";}
+ try{WriteDword(game,"AutoGameModeEnabled",1);WriteDword(game,"AllowAutoGameMode",1);if(backup.GpuPreferences!=null){using var key=Registry.CurrentUser.CreateSubKey(GpuPreferenceKey,true);foreach(var exe in backup.GpuPreferences.Keys)key.SetValue(exe,"GpuPreference=2;",RegistryValueKind.String);}var result=await Run("powercfg.exe","/setactive SCHEME_MIN");if(!string.IsNullOrWhiteSpace(result))throw new Exception(result);return "Windows Game Mode and High Performance power plan enabled."+(backup.GpuPreferences!=null?" Windows per-app graphics preference set to High performance for the selected game.":"")+" This may increase heat and power use. Use Undo to restore.";}
  catch(Exception ex){try{await UndoPCAsync();}catch{}return "Windows couldn't apply the gaming profile: "+ex.Message;}
  }
  async Task OptimizeFPS(){
  optimizeResult.Text="Applying safe Windows gaming settings and checking "+gameChoice.SelectedItem+"…";
- var profile=await ApplyGamingProfile();string detail;
+ var selectedPath=SelectedGamePath();var profile=await ApplyGamingProfile(selectedPath);string detail;
  if(Convert.ToString(gameChoice.SelectedItem)=="Fortnite")detail=await InspectFortnite();
  else if(Convert.ToString(gameChoice.SelectedItem)=="Rocket League")detail="Rocket League settings were left intact. Check its FPS cap and effects in game; see Live Monitor while it runs.";
  else detail="Minecraft settings were left intact. If CPU spikes, lower render and simulation distance; see Live Monitor while it runs.";
- optimizeResult.Text=profile+"\n\n"+detail+"\n\nFPS depends on game settings, temperatures, drivers, and the scene. The check above reports the settings Zenn can safely read.";
+ var gpuNote=string.IsNullOrWhiteSpace(selectedPath)?"\n\nNo game executable is selected. Use Locate Game to let Windows apply the per-app High performance GPU preference.":"";
+ optimizeResult.Text=profile+gpuNote+"\n\n"+detail+"\n\nFPS depends on game settings, temperatures, drivers, and the scene. The check above reports the settings Zenn can safely read.";
  }
  async Task<string> InspectFortnite(){
  var file=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"FortniteGame","Saved","Config","WindowsClient","GameUserSettings.ini");
