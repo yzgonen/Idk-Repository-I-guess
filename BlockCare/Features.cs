@@ -1,9 +1,37 @@
 using System.Diagnostics;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
 namespace BlockCare;
 partial class Dashboard {
+ static readonly HttpClient UpdateHttp=CreateUpdateClient();
+ string? updateInstallerUrl;
+ Version? updateVersion;
+ static HttpClient CreateUpdateClient(){var c=new HttpClient(){Timeout=TimeSpan.FromSeconds(12)};c.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("ZennUpdater","0.3.0"));c.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));return c;}
+ async Task CheckForUpdates(bool manual){
+  updateButton.Enabled=false;updateButton.Text="CHECKING...";
+  try{
+   using var response=await UpdateHttp.GetAsync("https://api.github.com/repos/yzgonen/Idk-Repository-I-guess/releases/tags/zenn-latest");response.EnsureSuccessStatusCode();
+   using var doc=JsonDocument.Parse(await response.Content.ReadAsStringAsync());var root=doc.RootElement;
+   var releaseName=root.TryGetProperty("name",out var title)?title.GetString()??"":"";var match=System.Text.RegularExpressions.Regex.Match(releaseName,@"\b(\d+\.\d+\.\d+)\b");
+   string? assetUrl=null;if(root.TryGetProperty("assets",out var assets))foreach(var asset in assets.EnumerateArray())if(asset.TryGetProperty("name",out var assetName)&&assetName.GetString()=="ZennSetup.exe"){assetUrl=asset.GetProperty("browser_download_url").GetString();break;}
+   var currentText=System.Text.RegularExpressions.Regex.Match(Application.ProductVersion,@"\d+\.\d+\.\d+").Value;
+   if(!match.Success||!Version.TryParse(match.Groups[1].Value,out var latest)||!Version.TryParse(currentText,out var current)||string.IsNullOrWhiteSpace(assetUrl))throw new InvalidOperationException("The latest Zenn setup release is not ready yet.");
+   if(latest>current){updateInstallerUrl=assetUrl;updateVersion=latest;updateButton.Text="UPDATE AVAILABLE";status.Text=$"ZENN  /  VERSION {current}  •  UPDATE {latest} READY";}
+   else{updateInstallerUrl=null;updateVersion=null;updateButton.Text="UP TO DATE";if(manual)MessageBox.Show("You already have the latest Zenn version.","Zenn updates");}
+  }catch(Exception ex){updateButton.Text="CHECK UPDATES";if(manual)MessageBox.Show("Zenn couldn't check for updates right now. Check your internet connection and try again.\n\n"+ex.Message,"Zenn updates");}
+  finally{updateButton.Enabled=true;}
+ }
+ async Task InstallAvailableUpdate(){
+  if(string.IsNullOrWhiteSpace(updateInstallerUrl)||updateVersion==null){await CheckForUpdates(true);return;}
+  try{
+   updateButton.Enabled=false;updateButton.Text="DOWNLOADING...";status.Text=$"ZENN  /  DOWNLOADING UPDATE {updateVersion}";
+   var setup=Path.Combine(Path.GetTempPath(),"ZennSetup-update.exe");using var response=await UpdateHttp.GetAsync(updateInstallerUrl,HttpCompletionOption.ResponseHeadersRead);response.EnsureSuccessStatusCode();
+   await using(var target=File.Create(setup))await response.Content.CopyToAsync(target);
+   Process.Start(new ProcessStartInfo(setup,"/CLOSEAPPLICATIONS"){UseShellExecute=true});quitting=true;Close();
+  }catch(Exception ex){updateButton.Enabled=true;updateButton.Text="UPDATE AVAILABLE";MessageBox.Show("The update couldn't be installed. Try again later.\n\n"+ex.Message,"Zenn update");}
+ }
  string data=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BlockCare"); // Preserve existing tune-up backups.
  bool sound=true; string? clickFile; readonly NAudio.Wave.WaveOutEvent speaker=new(); NAudio.Wave.WaveStream? audio;
  CheckBox? focusEnabled, focusChrome, focusDiscord, focusWhatsApp;
