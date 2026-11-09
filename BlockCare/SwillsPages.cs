@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Text.Json;
 using Microsoft.Win32;
